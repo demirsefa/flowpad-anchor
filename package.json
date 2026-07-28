@@ -1,0 +1,14 @@
+{
+  "name": "flowpad",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Anchor — a working protocol for building software with AI agents.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/demirsefa/flowpad-anchor.git"
+  },
+  "keywords": ["ai", "agents", "protocol", "contracts", "conventions"],
+  "engines": { "node": ">=18" },
+  "files": ["bin", "protocol"]
+}
