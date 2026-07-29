@@ -16,6 +16,15 @@ const SRC = path.join(__dirname, '..', 'protocol');
 const PROTOCOL_DIR = 'dev/flowpad'; // where upstream files are installed
 const CONTRACTS_DIR = 'dev/contracts'; // project-owned; only created when missing
 const LOCK = '.flowpad-lock.json';
+const GUIDES_DIR = `${PROTOCOL_DIR}/guides`;
+const STALE_DAYS = 180; // a stack guide older than this is suspect, not wrong
+
+// How a repository announces which stack it is. Detection only ever *suggests* a
+// guide — installing one is the user's call, like every other write here.
+const STACK_SIGNS = {
+  react: (r) => dep(r, 'react'),
+  typescript: (r) => dep(r, 'typescript'),
+};
 
 // The instruction files agents load automatically. Order matters only for the
 // "nothing exists yet" fallback — the first entry is what gets created.
@@ -64,6 +73,44 @@ function gitBranch(root) {
   } catch {
     return null;
   }
+}
+
+// Reads a dependency version from package.json, in any of the three fields.
+function dep(root, name) {
+  const p = path.join(root, 'package.json');
+  if (!exists(p)) return null;
+  try {
+    const pkg = JSON.parse(read(p));
+    return (
+      (pkg.dependencies || {})[name] ||
+      (pkg.devDependencies || {})[name] ||
+      (pkg.peerDependencies || {})[name] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function frontMatter(text) {
+  const m = text.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return {};
+  return Object.fromEntries(
+    m[1]
+      .split('\n')
+      .map((l) => l.split(/:\s*/))
+      .filter((kv) => kv.length >= 2)
+      .map((kv) => [kv[0].trim(), kv.slice(1).join(': ').trim()]),
+  );
+}
+
+function availableGuides() {
+  const dir = path.join(SRC, '..', 'guides');
+  if (!exists(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.md'))
+    .map((f) => f.replace(/\.md$/, ''));
 }
 
 function protocolVersion(text) {
@@ -377,6 +424,26 @@ function check(root) {
   else if (hasDefaultHook) add('PASS', 'commit-gate', '.git/hooks/pre-commit');
   else add('WARN', 'commit-gate', 'no pre-commit hook registered — §6 is unguarded');
 
+  // 6. guides — the danger is not a wrong guide, it is a stale one applied confidently
+  const gdir = path.join(root, GUIDES_DIR);
+  if (exists(gdir)) {
+    const stale = [];
+    for (const f of fs.readdirSync(gdir).filter((x) => x.endsWith('.md'))) {
+      const meta = frontMatter(read(path.join(gdir, f)));
+      const name = f.replace(/\.md$/, '');
+      if (!meta['last-reviewed']) {
+        stale.push(`${name} (no last-reviewed date)`);
+        continue;
+      }
+      const age = (Date.now() - Date.parse(meta['last-reviewed'])) / 86400000;
+      if (Number.isNaN(age)) stale.push(`${name} (unparsable date)`);
+      else if (age > STALE_DAYS) stale.push(`${name} (${Math.round(age)} days old)`);
+    }
+    stale.length
+      ? add('WARN', 'guides', `review needed: ${stale.join(', ')}`)
+      : add('PASS', 'guides', `${fs.readdirSync(gdir).length} guide(s), all reviewed recently`);
+  }
+
   report(rows);
   return failed ? 1 : 0;
 }
@@ -459,6 +526,56 @@ function update(root, force) {
   return 0;
 }
 
+// ---- guides ----------------------------------------------------------------
+
+function guide(root, sub, names) {
+  const all = availableGuides();
+  const installedDir = path.join(root, GUIDES_DIR);
+  const installed = exists(installedDir)
+    ? fs.readdirSync(installedDir).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''))
+    : [];
+
+  if (!sub || sub === 'list') {
+    for (const name of all) {
+      const sign = STACK_SIGNS[name] && STACK_SIGNS[name](root);
+      // Pad before colouring — escape codes have width in a string but not on screen.
+      const word = installed.includes(name) ? 'installed' : sign ? 'suggested' : 'available';
+      const paint = word === 'installed' ? c.ok : word === 'suggested' ? c.warn : c.dim;
+      console.log(
+        `  ${paint(word.padEnd(10))}  ${name}${sign ? c.dim(`  (${name} ${sign} in package.json)`) : ''}`,
+      );
+    }
+    const suggest = all.filter((n) => !installed.includes(n) && STACK_SIGNS[n] && STACK_SIGNS[n](root));
+    if (suggest.length)
+      console.log(`\n  ${c.dim(`npx flowpad guide add ${suggest.join(' ')}`)}`);
+    return 0;
+  }
+
+  if (sub !== 'add') {
+    console.error(`Unknown guide command: ${sub}. Use "list" or "add <name>".`);
+    return 1;
+  }
+  if (!names.length) {
+    console.error(`Which guide? Available: ${all.join(', ')}`);
+    return 1;
+  }
+  for (const name of names) {
+    if (!all.includes(name)) {
+      console.error(`No such guide: ${name}. Available: ${all.join(', ')}`);
+      return 1;
+    }
+    const rel = `${GUIDES_DIR}/${name}.md`;
+    const abs = path.join(root, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, read(path.join(SRC, '..', 'guides', `${name}.md`)));
+    console.log(`  ${c.ok('wrote')}  ${rel}`);
+  }
+  console.log(
+    `\n  ${c.dim('Point your instruction file at them, or let §2 find them — they are advice, not law.')}`,
+  );
+  return 0;
+}
+
 // ---- entry -----------------------------------------------------------------
 
 function help() {
@@ -468,6 +585,8 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad init')}     install the protocol and scaffolding into this repository
   ${c.b('npx flowpad check')}    verify it is anchored, filled in, and current  ${c.dim('(exit 1 on failure)')}
   ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
+  ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
+                       ${c.dim('add <name>')} to install one
 
   ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
                    file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
@@ -477,7 +596,8 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
 `);
 }
 
-const [cmd] = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const positional = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const [cmd, ...rest] = positional;
 const force = process.argv.includes('--force');
 const agentArg = process.argv.find((a) => a.startsWith('--agent='));
 const agentName = agentArg ? agentArg.slice('--agent='.length).toLowerCase() : undefined;
@@ -498,6 +618,9 @@ switch (cmd) {
     break;
   case 'update':
     process.exit(update(root, force));
+    break;
+  case 'guide':
+    process.exit(guide(root, rest[0], rest.slice(1)));
     break;
   case undefined:
   case 'help':

@@ -288,6 +288,7 @@ this table.
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
+| Stack guides going stale | ✅ `flowpad check` (`last-reviewed` age) |
 
 The "intent only" rows erode over a long session. The fix is not to make this document
 longer or sterner; it is to turn the rule into something executable. **If a rule is
@@ -338,7 +339,12 @@ Repeated rules drift, so these live elsewhere on purpose:
 - **Universal coding principles** — never swallow errors, fix the class rather than the
   instance, comment the *why*, no dead code, prefer early returns → the agent's
   **global** instructions.
-- **Language and framework guides** → separate guide files, opened when relevant.
+- **Language and framework guides** → separate files, installed per repository with
+  `npx flowpad guide add <stack>` and opened when relevant. They are kept apart from this
+  document on purpose: a framework guide ages on the framework's clock, not the protocol's,
+  and each carries a `last-reviewed` date that `flowpad check` warns about once it goes
+  stale. A guide that quietly rots is worse than no guide — an agent will apply it with
+  full confidence.
 - **Security and operations rules** (never put secrets on a command line, …) → global
   instructions.
 - **Project law** — architecture invariants, engine rules, domain constraints →
