@@ -392,6 +392,8 @@ function check(root) {
   const localV = protocolVersion(local);
   const upstreamV = protocolVersion(upstream);
   if (!lock) add('WARN', 'lock', `${LOCK} missing — cannot tell edits from upstream changes`);
+  else if (!exists(path.join(root, PROTOCOL_DIR, BASE)))
+    add('WARN', 'baseline', `${BASE} missing — \`update\` cannot show what it would drop`);
   else if (localV !== upstreamV)
     add('WARN', 'version', `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\``);
   else {
@@ -528,12 +530,19 @@ function update(root, force) {
   const merged = applySlots(upstream, slots);
   // Slots make the installed file differ from upstream by design; "current" means
   // it already equals what this version would write, not that it equals upstream.
+  const basePath = path.join(root, PROTOCOL_DIR, BASE);
   if (local === merged) {
-    console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
+    // An install from before baselines existed has nothing to diff against later.
+    // Seeding it here is safe precisely because the file is already current.
+    if (!exists(basePath)) {
+      fs.writeFileSync(basePath, upstream);
+      console.log(c.ok('Already current.'), `v${protocolVersion(local)} — baseline copy added.`);
+    } else {
+      console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
+    }
     return 0;
   }
 
-  const basePath = path.join(root, PROTOCOL_DIR, BASE);
   const base = exists(basePath) ? read(basePath) : null;
   const edited = pristine ? pristine !== sha(local) : base && base !== local;
 
