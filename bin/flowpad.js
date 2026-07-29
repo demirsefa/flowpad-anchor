@@ -16,6 +16,10 @@ const SRC = path.join(__dirname, '..', 'protocol');
 const PROTOCOL_DIR = 'dev/flowpad'; // where upstream files are installed
 const CONTRACTS_DIR = 'dev/contracts'; // project-owned; only created when missing
 const LOCK = '.flowpad-lock.json';
+// The pristine bytes as shipped, kept next to the lock. Without a base copy an
+// update can only diff old-vs-new and cannot tell an upstream change from the
+// user's own edit — which is the one thing it must never get wrong.
+const BASE = '.flowpad-upstream.md';
 const GUIDES_DIR = `${PROTOCOL_DIR}/guides`;
 const STALE_DAYS = 180; // a stack guide older than this is suspect, not wrong
 
@@ -91,6 +95,36 @@ function dep(root, name) {
     return null;
   }
 }
+
+// Minimal LCS line diff. Zero dependencies is a feature here: this runs inside a
+// commit hook on machines we do not control.
+function diffLines(a, b) {
+  const n = a.length;
+  const m = b.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push([' ', a[i]]);
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      out.push(['-', a[i++]]);
+    } else {
+      out.push(['+', b[j++]]);
+    }
+  }
+  while (i < n) out.push(['-', a[i++]]);
+  while (j < m) out.push(['+', b[j++]]);
+  return out;
+}
+
+const isSlotRow = (line) => /^\|[^|]+\|[^|]*\|$/.test(line);
 
 function frontMatter(text) {
   const m = text.match(/^---\n([\s\S]*?)\n---/);
@@ -312,6 +346,7 @@ function init(root, force, opts = {}) {
     path.join(root, PROTOCOL_DIR, LOCK),
     `${JSON.stringify(lock, null, 2)}\n`,
   );
+  fs.writeFileSync(path.join(root, PROTOCOL_DIR, BASE), protocolSrc);
   results.push([c.ok('wrote'), `${PROTOCOL_DIR}/${LOCK}`]);
 
   for (const [tag, file] of results) console.log(`  ${tag}  ${file}`);
@@ -491,16 +526,43 @@ function update(root, force) {
     if (row.test(upstream)) slots[m[1].trim()] = m[2].trim();
   }
   const merged = applySlots(upstream, slots);
+  // Slots make the installed file differ from upstream by design; "current" means
+  // it already equals what this version would write, not that it equals upstream.
+  if (local === merged) {
+    console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
+    return 0;
+  }
 
-  const edited = pristine && pristine !== sha(local);
-  if (edited && !force) {
-    const kept = Object.keys(slots).length;
+  const basePath = path.join(root, PROTOCOL_DIR, BASE);
+  const base = exists(basePath) ? read(basePath) : null;
+  const edited = pristine ? pristine !== sha(local) : base && base !== local;
+
+  if (edited) {
+    // Slot rows are carried over by design, so they are not "losses" — everything
+    // else the user wrote is, and it gets printed whether or not --force was passed.
+    const lost = base
+      ? diffLines(base.split('\n'), local.split('\n'))
+          .filter(([t, line]) => t === '+' && !isSlotRow(line) && line.trim())
+          .map(([, line]) => line)
+      : null;
     console.log(
       `${c.warn('Local edits detected')} in ${PROTOCOL_DIR}/AGENT-INIT.md ` +
         `(v${protocolVersion(local)} → v${protocolVersion(upstream)}).`,
     );
-    console.log(`  ${kept} filled §12 slot(s) will be carried over; any other edit will be lost.`);
-    if (!ask('  Overwrite?')) {
+    console.log(`  ${c.ok(`${Object.keys(slots).length} §12 slot(s)`)} will be carried over.`);
+    if (lost === null) {
+      console.log(
+        `  ${c.warn('No baseline copy')} (${BASE} is missing) — cannot show what else changed.`,
+      );
+    } else if (!lost.length) {
+      console.log(`  ${c.dim('Nothing else was changed locally.')}`);
+    } else {
+      console.log(`  ${c.bad(`${lost.length} line(s) you added will be lost:`)}`);
+      for (const line of lost.slice(0, 20)) console.log(c.bad(`    - ${line}`));
+      if (lost.length > 20) console.log(c.dim(`    … and ${lost.length - 20} more`));
+      console.log(c.dim('    (project-specific text belongs in §12 or your instruction file)'));
+    }
+    if (!force && !ask('  Overwrite?')) {
       console.log(c.dim('  Cancelled. Nothing was written.'));
       return 0;
     }
@@ -522,6 +584,7 @@ function update(root, force) {
       2,
     )}\n`,
   );
+  fs.writeFileSync(path.join(root, PROTOCOL_DIR, BASE), upstream);
   console.log(c.ok('Updated.'), `v${protocolVersion(upstream)} — ${Object.keys(slots).length} slot(s) preserved.`);
   return 0;
 }
