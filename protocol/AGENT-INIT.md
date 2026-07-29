@@ -275,8 +275,8 @@ this table.
 | Contract enforcement (§3) | ✅ the project's enforcement tests |
 | Commit-time lint/type gate (§6) | ✅ commit hook |
 | Working branch / fast-forward promotion (§6) | ✅ health check (§12) |
-| This file's version drift (§1) | ✅ `flowpad check` |
-| Scaffold integrity — anchor line, contract index, filled-in slots | ✅ `flowpad check` |
+| This file's version drift (§1) | ⏳ `flowpad check` — planned, not shipped |
+| Scaffold integrity — anchor line, contract index, filled-in slots | ⏳ `flowpad check` — planned, not shipped |
 | Session-opening orientation (§2) | ⚠️ none — intent only |
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |
@@ -288,6 +288,10 @@ longer or sterner; it is to turn the rule into something executable. **If a rule
 chronically forgotten, repair the environment, not the agent.**
 
 This table is a debt list. It should get shorter.
+
+Two rows are marked ⏳: the command that would guard them is designed but not published
+yet. They are listed here rather than hidden — a protocol that overstates its own
+enforcement is the first thing that should go red.
 
 ---
 
