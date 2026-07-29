@@ -4,8 +4,8 @@
 built — extracted, made project-neutral, and kept in one place so it can be applied
 to any repository.
 
-> **Status: early.** The CLI works and the protocol is in daily use, but nothing is
-> published to npm yet and the interface may still change.
+> **Status: early.** Published as [`flowpad`](https://www.npmjs.com/package/flowpad)
+> and in daily use across two workspaces, but the interface may still change.
 
 ## The problem
 
@@ -44,15 +44,24 @@ Prose convinces. Only the test binds. This protocol is the practice of keeping b
   (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`, …) — without it, no agent
   ever reads any of this.
 
-## Planned CLI
+## The CLI
 
 ```
-npx flowpad init     # install the protocol and scaffolding into this repo
-npx flowpad check    # verify it is still anchored, enforced, and current
+npx flowpad init --agent=claude --wire   # install, anchor, and wire the commit gate
+npx flowpad check                        # verify; exits non-zero when something is off
+npx flowpad update                       # take a newer protocol, keeping your §12 slots
 ```
 
-`check` is the part that matters. A protocol that only describes good behaviour
-decays; one that exits non-zero in a pre-commit hook does not.
+`check` is the part that matters. It verifies that the anchor line is still there, that
+every project slot is filled in, that the contract index and the files on disk still
+agree in both directions, and that a commit gate is actually registered — not merely
+present as a file.
+
+`--wire` is what makes that mechanical rather than remembered: it adds `flowpad check`
+to the pre-commit hook (and, where there is a `package.json`, pins the dependency). A
+protocol that only describes good behaviour decays; one that exits non-zero at commit
+time does not. It is opt-in — editing someone's commit hook uninvited is exactly the
+behaviour the protocol tells agents not to have.
 
 ## Honesty
 
