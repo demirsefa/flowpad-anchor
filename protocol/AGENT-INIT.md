@@ -86,8 +86,11 @@ Before writing code:
    touch has a contract, **open it**. Do not read them all.
 2. **Look at the open work** for this project (§5, §12) — what is in flight, where the
    last session stopped.
-3. **Confirm you are on the working branch** (§6). If not, switch first.
-4. **Tell the human where things stand** — three to five lines: current state, what this
+3. **Run `npx flowpad check`** if the project has it wired. It answers in one shot
+   what you would otherwise have to remember to look for: an unfilled slot, a contract
+   that is not in the index, a protocol version that has moved on.
+4. **Confirm you are on the working branch** (§6). If not, switch first.
+5. **Tell the human where things stand** — three to five lines: current state, what this
    session is about, any open question. Then start.
 
 **Why:** the person running you is usually running several sessions and cannot hold all
@@ -279,6 +282,7 @@ this table.
 | Working branch / fast-forward promotion (§6) | ✅ health check (§12) |
 | This file's version drift (§1) | ✅ `flowpad check` |
 | Scaffold integrity — anchor line, contract index, filled-in slots | ✅ `flowpad check` |
+| Noticing a newer protocol exists | ✅ `flowpad check`, mechanically when wired into the commit gate (`init --wire`) |
 | Session-opening orientation (§2) | ⚠️ none — intent only |
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |

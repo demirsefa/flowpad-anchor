@@ -20,6 +20,13 @@ const LOCK = '.flowpad-lock.json';
 // The instruction files agents load automatically. Order matters only for the
 // "nothing exists yet" fallback — the first entry is what gets created.
 const ANCHOR_TARGETS = ['AGENTS.md', 'CLAUDE.md', '.cursorrules', 'GEMINI.md'];
+// Users know which agent they run, not which file it happens to read.
+const AGENT_FILES = {
+  claude: 'CLAUDE.md',
+  codex: 'AGENTS.md',
+  cursor: '.cursorrules',
+  gemini: 'GEMINI.md',
+};
 const ANCHOR_MARK = `${PROTOCOL_DIR}/AGENT-INIT.md`;
 const ANCHOR_LINE = `The working protocol for this repository is in \`${ANCHOR_MARK}\` — read it at the start of a session.`;
 
@@ -156,6 +163,71 @@ function anchorInto(root, results, preferred) {
   }
 }
 
+// Wiring is opt-in on purpose. Editing somebody's commit hook or manifest without
+// being asked is exactly the behaviour this protocol tells agents not to have (§4).
+function wireInto(root, results) {
+  const HOOK_MARK = 'flowpad check';
+  const pkgPath = path.join(root, 'package.json');
+  let viaDependency = false;
+
+  if (exists(pkgPath)) {
+    try {
+      const pkg = JSON.parse(read(pkgPath));
+      pkg.devDependencies = pkg.devDependencies || {};
+      if (!pkg.devDependencies[PKG.name]) {
+        pkg.devDependencies[PKG.name] = `^${PKG.version}`;
+        results.push([c.ok('added'), `package.json devDependency ${PKG.name}@^${PKG.version}`]);
+      } else {
+        results.push([c.dim('same'), `package.json devDependency ${PKG.name}`]);
+      }
+      pkg.scripts = pkg.scripts || {};
+      if (!pkg.scripts.anchor) {
+        pkg.scripts.anchor = 'flowpad check';
+        results.push([c.ok('added'), 'package.json script "anchor"']);
+      }
+      fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+      viaDependency = true;
+    } catch (err) {
+      // Refuse to guess at a manifest we cannot parse — silently rewriting it would
+      // be worse than not wiring at all.
+      results.push([c.warn('skipped'), `package.json is not valid JSON (${err.message})`]);
+    }
+  }
+
+  // A pinned devDependency resolves locally and starts fast; without one the hook has
+  // to fetch, so it pins @latest rather than silently running whatever npx cached.
+  const cmd = viaDependency ? 'npx flowpad check' : 'npx -y flowpad@latest check';
+  let hooksPath = null;
+  try {
+    hooksPath = execFileSync('git', ['-C', root, 'config', '--get', 'core.hooksPath'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    hooksPath = null;
+  }
+  // husky v9 keeps its runner in .husky/_ but the hooks themselves one level up.
+  const hookDir = hooksPath
+    ? path.resolve(root, hooksPath.replace(/\/_$/, ''))
+    : path.join(root, '.git', 'hooks');
+  if (!exists(hookDir)) {
+    results.push([c.warn('skipped'), `no hook directory at ${path.relative(root, hookDir)}`]);
+    return;
+  }
+  const hook = path.join(hookDir, 'pre-commit');
+  const body = exists(hook) ? read(hook) : '';
+  if (body.includes(HOOK_MARK)) {
+    results.push([c.dim('same'), `${path.relative(root, hook)} (already wired)`]);
+    return;
+  }
+  const content = body
+    ? `${body}${body.endsWith('\n') ? '' : '\n'}${cmd}\n`
+    : `#!/bin/sh\n${cmd}\n`;
+  fs.writeFileSync(hook, content);
+  fs.chmodSync(hook, 0o755);
+  results.push([c.ok(body ? 'wired' : 'created'), `${path.relative(root, hook)} → ${cmd}`]);
+}
+
 function init(root, force, opts = {}) {
   const results = [];
   const protocolSrc = read(path.join(SRC, 'AGENT-INIT.md'));
@@ -177,6 +249,7 @@ function init(root, force, opts = {}) {
   writeFile(root, `${PROTOCOL_DIR}/AGENT-INIT.md`, installed, force, results);
 
   anchorInto(root, results, opts.anchor);
+  if (opts.wire) wireInto(root, results);
 
   // The lock records the *upstream* bytes, not what is on disk. That is what makes
   // "the user edited this" distinguishable from "upstream moved".
@@ -396,21 +469,29 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad check')}    verify it is anchored, filled in, and current  ${c.dim('(exit 1 on failure)')}
   ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
 
-  ${c.dim('--force')}            skip the overwrite prompt
-  ${c.dim('--anchor=<file>')}    which instruction file to create when none exists
-                     ${c.dim(`(${ANCHOR_TARGETS.join(', ')})`)}
+  ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
+                   file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
+  ${c.dim('--wire')}           also wire \`flowpad check\` into the commit gate, so drift
+                   goes red mechanically instead of relying on memory
+  ${c.dim('--force')}          skip the overwrite prompt
 `);
 }
 
 const [cmd] = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const force = process.argv.includes('--force');
-const anchorArg = process.argv.find((a) => a.startsWith('--anchor='));
-const anchor = anchorArg ? anchorArg.slice('--anchor='.length) : undefined;
+const agentArg = process.argv.find((a) => a.startsWith('--agent='));
+const agentName = agentArg ? agentArg.slice('--agent='.length).toLowerCase() : undefined;
+if (agentName && !AGENT_FILES[agentName]) {
+  console.error(`Unknown agent: ${agentName}. Known: ${Object.keys(AGENT_FILES).join(', ')}`);
+  process.exit(1);
+}
+const anchor = agentName ? AGENT_FILES[agentName] : undefined;
+const wire = process.argv.includes('--wire');
 const root = repoRoot();
 
 switch (cmd) {
   case 'init':
-    init(root, force, { anchor });
+    init(root, force, { anchor, wire });
     break;
   case 'check':
     process.exit(check(root));
