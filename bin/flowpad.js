@@ -109,7 +109,9 @@ function detectSlots(root) {
 }
 
 function applySlots(text, slots) {
-  return text.replace(/^\| ([^|]+?) \| `<TODO>` \|$/gm, (line, slot) => {
+  // A slot row may carry a hint after the placeholder — match on "contains <TODO>",
+  // not on an exact cell, or a hinted row silently stays unfilled.
+  return text.replace(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm, (line, slot) => {
     const key = slot.trim();
     return slots[key] ? `| ${key} | ${slots[key]} |` : line;
   });
@@ -191,7 +193,7 @@ function init(root, force) {
   results.push([c.ok('wrote'), `${PROTOCOL_DIR}/${LOCK}`]);
 
   for (const [tag, file] of results) console.log(`  ${tag}  ${file}`);
-  const todos = (installed.match(/^\|[^|]+\| `<TODO>` \|$/gm) || []).length;
+  const todos = (installed.match(/^\|[^|]+\|[^|]*<TODO>[^|]*\|$/gm) || []).length;
   console.log(
     todos
       ? `\n${c.warn('Next:')} fill the remaining ${todos} \`<TODO>\` slot(s) in §12, then run \`npx flowpad check\`.`
@@ -250,7 +252,7 @@ function check(root) {
   // 3. unfilled slots
   const todos = (local.match(/`<TODO>`/g) || []).length;
   // one <TODO> lives in the explanatory sentence above the table, not in a slot
-  const openSlots = (local.match(/^\|[^|]+\| `<TODO>` \|$/gm) || []).length;
+  const openSlots = (local.match(/^\|[^|]+\|[^|]*<TODO>[^|]*\|$/gm) || []).length;
   openSlots
     ? add('WARN', 'slots', `${openSlots} slot(s) in §12 still say <TODO>`)
     : add('PASS', 'slots', `filled (${todos} mention(s) in prose)`);
@@ -343,7 +345,8 @@ function update(root, force) {
   // whole reason this command can be safe to run.
   const slots = {};
   for (const m of local.matchAll(/^\| ([^|]+?) \| (?!`<TODO>`)([^|]+) \|$/gm)) {
-    if (upstream.includes(`| ${m[1]} | \`<TODO>\` |`)) slots[m[1].trim()] = m[2].trim();
+    const row = new RegExp(`^\\| ${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`, 'm');
+    if (row.test(upstream)) slots[m[1].trim()] = m[2].trim();
   }
   const merged = applySlots(upstream, slots);
 

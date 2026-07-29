@@ -28,6 +28,7 @@ rest is reference, opened when relevant.*
 3. **Reversible development work does not need permission.** Deployment, destruction,
    money, and scope changes do. Batch questions to the end. (§4)
 4. **A task must stand alone.** An investigation task delivers a report, not code. (§5)
+   Any `<TODO>` slot in §12 is a question to ask the human — never a blank to guess. (§12)
 5. **One working branch.** Promotion is a fast-forward. **Pushing triggers deployment;
    agents do not.** (§6)
 6. **Never bypass the commit gate.** Fix the error the hook found. (§6)
@@ -185,34 +186,35 @@ project setting (§12).
 
 ## 6. Branches and delivery
 
-Assumes a single developer: no pull-request review, no parallel authors.
+**These hold in every model** — they are what an agent must respect regardless of how
+the project branches:
 
-- **One long-lived working branch.** Do not carve a branch per task — it produces
-  scattered work and buys nothing here. An agent never opens a branch or worktree on
-  its own initiative.
-- If a session starts on the wrong branch, **switch first**, then work.
-- **Documentation-only repositories are the exception** — a repo nothing deploys from
-  has no use for a promotion chain; work directly on its main branch (§12).
-
-**Promotion is deployment:**
-
-- Advance only by **fast-forward merge**; downstream branches stay ancestors of the
-  working branch. Once they diverge, converge them first — then fast-forward is clean
+- **An agent never opens a branch or worktree on its own initiative.** If a session
+  starts on the wrong branch, say so and switch; do not invent a new one.
+- **Advance only by fast-forward.** Downstream branches stay ancestors of the branch
+  they came from. Once they diverge, converge them first — then fast-forward is clean
   again.
 - **Pushing triggers deployment. The agent does not.** Promotion happens on explicit
   human approval (§4).
-- Deployment carries code, **not server configuration**. If a release needs a new
+- **Deployment carries code, not server configuration.** If a release needs a new
   environment variable, that is a separate manual step — forget it and the deploy is
   quietly half-applied.
+- **Never bypass the commit gate.** If the lint/type hook blocks, fix what it found. A
+  gate that gets skipped stops being a gate.
+- Keep commit messages short — a title and at most a line or two — and group changes
+  logically rather than piling unrelated ones together.
 
-**The commit gate:**
+**Which branching model this project uses is a slot (§12).** The two common shapes:
 
-- Every repository should run a lint/type gate at commit time. If it blocks, **do not
-  bypass it** — fix what it found. A gate that gets skipped stops being a gate.
-- Keep commit messages short: a title and at most a line or two.
-- Group logically; do not pile unrelated changes into one commit.
+- **Solo** — one long-lived working branch; no branch per task. With no review and no
+  parallel authors, per-task branches cost attention and buy nothing, and half-finished
+  ones get abandoned. Work lands on the working branch directly.
+- **Team** — a branch per unit of work, merged through review. The working branch is
+  protected, and an agent neither merges nor releases: it prepares the change, and a
+  human approves it (§4).
 
----
+If the slot is empty, ask (§12) — do not infer the model from the branch names you
+happen to see.
 
 ## 7. Reporting
 
@@ -347,10 +349,25 @@ Repeated rules drift, so these live elsewhere on purpose:
 `flowpad init` fills in what it can detect and leaves the rest as `<TODO>`;
 `flowpad check` warns while any remain.*
 
+**A `<TODO>` slot is a question for the human, not a gap to fill in with a guess.**
+This table is the whole interview — bounded, and asked once. If a session starts with
+slots still empty:
+
+1. Answer for yourself whatever the repository can answer (branch names, scripts,
+   folders), and say what you inferred.
+2. **Ask the rest in a single batch** (§4), each as a concrete question — *"branching
+   model: solo single-branch, or team feature-branch-and-review?"* — not as an open
+   invitation to describe the project.
+3. Write the answers in, and carry on with the session.
+
+Guessing a slot is worse than leaving it empty: an empty slot keeps `check` complaining,
+a wrong one looks settled and gets obeyed.
+
 | Slot | This project |
 |---|---|
 | Contract index | `<TODO>` |
 | Task surface (§5) | `<TODO>` |
+| Branching model (§6) | `<TODO>` — solo (single branch) / team (branch + review) |
 | Working branch (§6) | `<TODO>` |
 | Promotion chain (§6) | `<TODO>` |
 | Health check (§9) | `<TODO>` |
