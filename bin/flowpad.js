@@ -138,9 +138,11 @@ function writeFile(root, rel, content, force, results) {
   return true;
 }
 
-function anchorInto(root, results) {
+function anchorInto(root, results, preferred) {
   const present = ANCHOR_TARGETS.filter((f) => exists(path.join(root, f)));
-  const targets = present.length ? present : [ANCHOR_TARGETS[0]];
+  // When the repo has no instruction file yet, which one to create is the user's
+  // call — it depends on the agent they actually run, and we cannot detect that.
+  const targets = present.length ? present : [preferred || ANCHOR_TARGETS[0]];
   for (const file of targets) {
     const abs = path.join(root, file);
     const body = exists(abs) ? read(abs) : '';
@@ -154,7 +156,7 @@ function anchorInto(root, results) {
   }
 }
 
-function init(root, force) {
+function init(root, force, opts = {}) {
   const results = [];
   const protocolSrc = read(path.join(SRC, 'AGENT-INIT.md'));
 
@@ -174,7 +176,7 @@ function init(root, force) {
   const installed = applySlots(protocolSrc, slots);
   writeFile(root, `${PROTOCOL_DIR}/AGENT-INIT.md`, installed, force, results);
 
-  anchorInto(root, results);
+  anchorInto(root, results, opts.anchor);
 
   // The lock records the *upstream* bytes, not what is on disk. That is what makes
   // "the user edited this" distinguishable from "upstream moved".
@@ -394,17 +396,21 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad check')}    verify it is anchored, filled in, and current  ${c.dim('(exit 1 on failure)')}
   ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
 
-  ${c.dim('--force')}   skip the overwrite prompt
+  ${c.dim('--force')}            skip the overwrite prompt
+  ${c.dim('--anchor=<file>')}    which instruction file to create when none exists
+                     ${c.dim(`(${ANCHOR_TARGETS.join(', ')})`)}
 `);
 }
 
 const [cmd] = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const force = process.argv.includes('--force');
+const anchorArg = process.argv.find((a) => a.startsWith('--anchor='));
+const anchor = anchorArg ? anchorArg.slice('--anchor='.length) : undefined;
 const root = repoRoot();
 
 switch (cmd) {
   case 'init':
-    init(root, force);
+    init(root, force, { anchor });
     break;
   case 'check':
     process.exit(check(root));
