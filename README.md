@@ -4,8 +4,8 @@
 built — extracted, made project-neutral, and kept in one place so it can be applied
 to any repository.
 
-> **Status: early.** The protocol document is being finalised; the CLI described
-> below is not published yet. Nothing here is stable.
+> **Status: early.** The CLI works and the protocol is in daily use, but nothing is
+> published to npm yet and the interface may still change.
 
 ## The problem
 

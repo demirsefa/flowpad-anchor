@@ -8,7 +8,21 @@
     "type": "git",
     "url": "git+https://github.com/demirsefa/flowpad-anchor.git"
   },
-  "keywords": ["ai", "agents", "protocol", "contracts", "conventions"],
-  "engines": { "node": ">=18" },
-  "files": ["bin", "protocol"]
+  "keywords": [
+    "ai",
+    "agents",
+    "protocol",
+    "contracts",
+    "conventions"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "protocol"
+  ],
+  "bin": {
+    "flowpad": "bin/flowpad.js"
+  }
 }
