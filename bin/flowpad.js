@@ -396,7 +396,17 @@ function check(root) {
     add('WARN', 'baseline', `${BASE} missing — \`update\` cannot show what it would drop`);
   else if (localV !== upstreamV)
     add('WARN', 'version', `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\``);
-  else {
+  else if (
+    lock.files &&
+    lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`] &&
+    lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`].upstream &&
+    lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`].upstream !== sha(upstream)
+  ) {
+    // The declared version is hand-maintained and was, in practice, forgotten while
+    // the body changed across several releases. The recorded upstream hash cannot be
+    // forgotten, so drift is detected from it and the version is only a label.
+    add('WARN', 'version', `v${localV} body has moved on upstream — run \`npx flowpad update\``);
+  } else {
     const entry = (lock.files || {})[`${PROTOCOL_DIR}/AGENT-INIT.md`];
     const installedSha = entry && (entry.installed || entry);
     add(
