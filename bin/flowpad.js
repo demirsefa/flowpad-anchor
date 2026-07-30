@@ -212,24 +212,10 @@ function detectSlots(root) {
   ].filter((f) => exists(here(f)));
   if (!deploySigns.length) slots['How a change reaches production (§6)'] = 'none — nothing deploys from this repo';
 
-  // Branching model: inferred from evidence, and marked as inferred so a human can
-  // correct it at a glance instead of being interrogated up front.
-  try {
-    const authors = execFileSync('git', ['-C', root, 'shortlog', '-sn', '--all'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .trim()
-      .split('\n')
-      .filter(Boolean).length;
-    const reviewMachinery = ['.github/PULL_REQUEST_TEMPLATE.md', '.github/CODEOWNERS'].some((f) =>
-      exists(here(f)),
-    );
-    if (authors === 1 && !reviewMachinery)
-      slots['Branching model (§6)'] = 'solo (single branch) — inferred, correct if wrong';
-  } catch {
-    // No history yet (fresh repo): leave it as a question rather than assume.
-  }
+  // Branching model is deliberately NOT inferred. The obvious signal — a single
+  // author — does not indicate the model: a solo developer may still work on topic
+  // branches, and this exact guess was wrong on the first real repository it met.
+  // Guessing is worse than leaving it empty (§12).
 
   const scriptsIn = (dir) => {
     try {
