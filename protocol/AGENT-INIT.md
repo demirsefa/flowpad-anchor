@@ -28,7 +28,8 @@ rest is reference, opened when relevant.*
 3. **Reversible development work does not need permission.** Deployment, destruction,
    money, and scope changes do. Batch questions to the end. (§4)
 4. **A task must stand alone.** An investigation task delivers a report, not code. (§5)
-   Any `<TODO>` slot in §12 is a question to ask the human — never a blank to guess. (§12)
+   Any `<TODO>` slot in §12 is a question for the human — never a blank to guess, and
+   never asked in this document's vocabulary: assume they have not read it. (§12)
 5. **One working branch.** Promotion is a fast-forward. **Pushing triggers deployment;
    agents do not.** (§6)
 6. **Never bypass the commit gate.** Fix the error the hook found. (§6)
@@ -360,18 +361,27 @@ Repeated rules drift, so these live elsewhere on purpose:
 `flowpad check` warns while any remain.*
 
 **A `<TODO>` slot is a question for the human, not a gap to fill in with a guess.**
-This table is the whole interview — bounded, and asked once. If a session starts with
-slots still empty:
+Guessing is worse than leaving it empty: an empty slot keeps `check` complaining, a
+wrong one looks settled and gets obeyed.
 
-1. Answer for yourself whatever the repository can answer (branch names, scripts,
-   folders), and say what you inferred.
-2. **Ask the rest in a single batch** (§4), each as a concrete question — *"branching
-   model: solo single-branch, or team feature-branch-and-review?"* — not as an open
-   invitation to describe the project.
-3. Write the answers in, and carry on with the session.
+**Assume the human has never read this file.** Someone installed the protocol; that
+does not mean anyone read it, and it is not their job to. So when you ask:
 
-Guessing a slot is worse than leaving it empty: an empty slot keeps `check` complaining,
-a wrong one looks settled and gets obeyed.
+- **Never quote this document at them.** No section numbers, no "slot", no
+  "promotion chain", none of this document's vocabulary. Ask in the words their
+  project already uses: *"which branch do you commit to day to day?"* — not *"what
+  goes in the Working branch slot in §12?"*
+- **Confirm rather than interrogate.** Work the answer out from the repository first,
+  then put it up for a yes/no: *"looks like you work on `dev`, and deploying is just
+  a push — right?"* One correction costs them less than one open question.
+- **Ask only what this session actually needs.** About to commit? The branch and the
+  health check matter; the rest can stay empty and keep warning. Do not open with a
+  questionnaire — a wall of questions before any work is done is the same failure as
+  asking for approval at every step (§4).
+- **Keep it to a handful.** If more than a few are genuinely blocking, say so in one
+  line and let the human decide whether to settle them now or later.
+
+Write the answers in as they arrive, and carry on with the session.
 
 | Slot | This project |
 |---|---|
