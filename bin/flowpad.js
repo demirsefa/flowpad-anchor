@@ -474,13 +474,26 @@ function check(root) {
   } else {
     const entry = (lock.files || {})[`${PROTOCOL_DIR}/AGENT-INIT.md`];
     const installedSha = entry && (entry.installed || entry);
-    add(
-      'PASS',
-      'version',
-      installedSha === sha(local)
-        ? `v${localV}, as installed`
-        : `v${localV}, locally edited (fine — §12 is yours)`,
-    );
+    if (installedSha === sha(local)) {
+      add('PASS', 'version', `v${localV}, as installed`);
+    } else {
+      // The file is read-only apart from the slot table. Edits outside it are not a
+      // style problem: `update` deletes them without asking, so they are told about.
+      const basePath = path.join(root, PROTOCOL_DIR, BASE);
+      const stray = exists(basePath)
+        ? diffLines(read(basePath).split('\n'), local.split('\n')).filter(
+            ([t, line]) => t === '+' && !isSlotRow(line) && line.trim(),
+          ).length
+        : null;
+      if (stray) {
+        add(
+          'WARN',
+          'read-only',
+          `${stray} line(s) added outside the §12 slot table — \`update\` will drop them; move them to the project instruction file`,
+        );
+      }
+      add('PASS', 'version', `v${localV}, slots filled (expected)`);
+    }
   }
 
   // 3. unfilled slots

@@ -1,17 +1,34 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 3
+version: 4
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
-install: installed by `npx flowpad init` into dev/flowpad/; edit freely, `update` will ask before overwriting
+install: installed by `npx flowpad init` into dev/flowpad/
 ```
 
-> This is the first thing an agent should read in a session. It is **advice**, not law —
-> but most of the advice was paid for. Project-specific **law** lives in
-> `contracts/` (§3).
+> ## ⛔ AGENTS: THIS FILE IS READ-ONLY
 >
-> Nothing here is specific to one project. Everything that is belongs in §12.
+> **Do not edit it.** Not to add a rule, not to fix a typo, not to append a section,
+> not to "adapt it to this project". It is installed from a package and `npx flowpad
+> update` overwrites it — anything you write here is lost, silently, on the next
+> release.
+>
+> **The one exception:** the values in the **§12 slot table**. Those are the project's,
+> and filling them in is expected.
+>
+> **Everything else you want to write down goes in this project's own instruction
+> file** (`CLAUDE.md` / `AGENTS.md` / …), which is exactly what §12's *Additional
+> project rules* points at. A rule that belongs to this project and lives here is
+> both in the wrong place and on a timer.
+>
+> If you believe the protocol itself is wrong, say so to the human and stop. Changing
+> it is an upstream decision, not a local edit.
+
+This is the first thing an agent should read in a session. It is **advice**, not law —
+but most of the advice was paid for. Project-specific **law** lives in `contracts/` (§3).
+
+Nothing here is specific to one project. Everything that is belongs in §12.
 
 ---
 
@@ -40,6 +57,9 @@ rest is reference, opened when relevant.*
    skipped, say so. (§7)
 10. **Universal coding principles are not repeated here** — they belong in the agent's
     global instructions. (§11)
+11. **This file is read-only.** Only the §12 slot values may be filled in; everything
+    else you want to write belongs in the project's own instruction file. `update`
+    overwrites this file.
 
 ---
 
@@ -293,6 +313,7 @@ this table.
 | Report formats (§7) | ⚠️ none — intent only |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
 | Stack guides going stale | ✅ `flowpad check` (`last-reviewed` age) |
+| Edits to this read-only file outside §12 | ✅ `flowpad check` |
 
 The "intent only" rows erode over a long session. The fix is not to make this document
 longer or sterner; it is to turn the rule into something executable. **If a rule is
