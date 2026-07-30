@@ -231,17 +231,42 @@ function detectSlots(root) {
     // No history yet (fresh repo): leave it as a question rather than assume.
   }
 
-  const pkgPath = path.join(root, 'package.json');
-  if (exists(pkgPath)) {
+  const scriptsIn = (dir) => {
     try {
-      const scripts = JSON.parse(read(pkgPath)).scripts || {};
-      const test = ['full-test', 'test'].find((s) => scripts[s]);
-      if (test) slots['Test command'] = `\`npm run ${test}\``;
-      const health = ['doctor', 'lint', 'validate'].find((s) => scripts[s]);
-      if (health) slots['Health check (§9)'] = `\`npm run ${health}\``;
+      return JSON.parse(read(path.join(dir, 'package.json'))).scripts || {};
     } catch {
-      // A malformed package.json is the project's problem, not ours — detection
-      // is best-effort, and leaving the slot as <TODO> is the correct fallback.
+      // Missing or malformed manifest: best-effort detection, leave the slot empty.
+      return {};
+    }
+  };
+
+  const rootScripts = exists(here('package.json')) ? scriptsIn(root) : null;
+  if (rootScripts) {
+    const test = ['full-test', 'test'].find((n) => rootScripts[n]);
+    if (test) slots['Test command'] = `\`npm run ${test}\``;
+    const health = ['doctor', 'lint', 'validate'].find((n) => rootScripts[n]);
+    if (health) slots['Health check (§9)'] = `\`npm run ${health}\``;
+  } else {
+    // A workspace root often carries no manifest of its own while every child repo
+    // does. Looking only at the root would report "unknown" for a project that in
+    // fact has one command per sub-repo.
+    let children = [];
+    try {
+      children = fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+        .map((e) => here(e.name))
+        .filter((d) => exists(path.join(d, 'package.json')));
+    } catch {
+      children = [];
+    }
+    if (children.length) {
+      const shared = (names) =>
+        names.find((n) => children.filter((d) => scriptsIn(d)[n]).length >= 2);
+      const health = shared(['validate', 'lint', 'typecheck']);
+      const test = shared(['test', 'full-test']);
+      if (health) slots['Health check (§9)'] = `per sub-repo: \`npm run ${health}\``;
+      if (test) slots['Test command'] = `per sub-repo: \`npm run ${test}\``;
     }
   }
   return slots;
