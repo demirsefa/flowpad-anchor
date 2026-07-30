@@ -385,12 +385,15 @@ function init(root, force, opts = {}) {
 
   // The lock records the *upstream* bytes, not what is on disk. That is what makes
   // "the user edited this" distinguishable from "upstream moved".
+  // Record what is actually on disk, not what we would have written — when the file
+  // was kept, claiming otherwise would make `update` mis-detect the user's edits.
+  const onDisk = read(path.join(root, `${PROTOCOL_DIR}/AGENT-INIT.md`));
   const lock = {
     package: PKG.name,
     packageVersion: PKG.version,
-    protocolVersion: protocolVersion(protocolSrc),
+    protocolVersion: protocolVersion(onDisk),
     files: {
-      [`${PROTOCOL_DIR}/AGENT-INIT.md`]: { installed: sha(installed), upstream: sha(protocolSrc) },
+      [`${PROTOCOL_DIR}/AGENT-INIT.md`]: { installed: sha(onDisk), upstream: sha(protocolSrc) },
     },
   };
   fs.writeFileSync(
@@ -588,7 +591,9 @@ function update(root, force) {
     const row = new RegExp(`^\\| ${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`, 'm');
     if (row.test(upstream)) slots[m[1].trim()] = m[2].trim();
   }
-  const merged = applySlots(upstream, slots);
+  // Detection improves between releases; an install made before it did should benefit
+  // too. Anything the human already filled wins over what we can infer.
+  const merged = applySlots(upstream, { ...detectSlots(root), ...slots });
   // Slots make the installed file differ from upstream by design; "current" means
   // it already equals what this version would write, not that it equals upstream.
   const basePath = path.join(root, PROTOCOL_DIR, BASE);
