@@ -30,8 +30,9 @@ rest is reference, opened when relevant.*
 4. **A task must stand alone.** An investigation task delivers a report, not code. (§5)
    Any `<TODO>` slot in §12 is a question for the human — never a blank to guess, and
    never asked in this document's vocabulary: assume they have not read it. (§12)
-5. **One working branch.** Promotion is a fast-forward. **Pushing triggers deployment;
-   agents do not.** (§6)
+5. **Branching and release are project settings (§12), not things to infer.** An agent
+   never opens a branch on its own, and never ships — it prepares; a human releases. In
+   some projects a push is already a deploy. (§6)
 6. **Never bypass the commit gate.** Fix the error the hook found. (§6)
 7. **Report, don't narrate.** State what broke, why, and what changed. (§7)
 8. **End a session on purpose:** loose ends → tasks → commit → verify understanding. (§8)
@@ -195,11 +196,13 @@ the project branches:
 
 - **An agent never opens a branch or worktree on its own initiative.** If a session
   starts on the wrong branch, say so and switch; do not invent a new one.
-- **Advance only by fast-forward.** Downstream branches stay ancestors of the branch
-  they came from. Once they diverge, converge them first — then fast-forward is clean
-  again.
-- **Pushing triggers deployment. The agent does not.** Promotion happens on explicit
-  human approval (§4).
+- **How changes reach production is a project setting (§12) — read it, do not infer
+  it.** Fast-forward promotion, squash-merge, release tags, a pipeline triggered from
+  review: all of them are legitimate, and which one is in use is not something to
+  deduce from the branch names you happen to see.
+- **Releasing is not the agent's move.** Whatever the chain is, your part ends at a
+  prepared change; a human decides when it ships (§4). In some projects a push is
+  already a deploy — assume that until told otherwise.
 - **Deployment carries code, not server configuration.** If a release needs a new
   environment variable, that is a separate manual step — forget it and the deploy is
   quietly half-applied.
@@ -389,7 +392,7 @@ Write the answers in as they arrive, and carry on with the session.
 | Task surface (§5) | `<TODO>` |
 | Branching model (§6) | `<TODO>` — solo (single branch) / team (branch + review) |
 | Working branch (§6) | `<TODO>` |
-| Promotion chain (§6) | `<TODO>` |
+| How a change reaches production (§6) | `<TODO>` — or `none` if nothing deploys from here |
 | Health check (§9) | `<TODO>` |
 | Test command | `<TODO>` |
 | Where wins are recorded (§8) | `<TODO>` |
