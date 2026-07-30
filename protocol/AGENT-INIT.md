@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 4
+version: 5
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -10,8 +10,8 @@ install: installed by `npx flowpad init` into dev/flowpad/
 > ## ⛔ AGENTS: THIS FILE IS READ-ONLY
 >
 > **Do not edit it.** Not to add a rule, not to fix a typo, not to append a section,
-> not to "adapt it to this project". It is installed from a package and `npx flowpad
-> update` overwrites it — anything you write here is lost, silently, on the next
+> not to "adapt it to this project". It is installed from a package and updating that
+> package overwrites it — anything you write here is lost, silently, on the next
 > release.
 >
 > **The one exception:** the values in the **§12 slot table**. Those are the project's,
@@ -108,9 +108,9 @@ Before writing code:
    touch has a contract, **open it**. Do not read them all.
 2. **Look at the open work** for this project (§5, §12) — what is in flight, where the
    last session stopped.
-3. **Run `npx flowpad check`** if the project has it wired. It answers in one shot
-   what you would otherwise have to remember to look for: an unfilled slot, a contract
-   that is not in the index, a protocol version that has moved on.
+3. **Run the installation check** if this project has one wired (§10). It answers in
+   one shot what you would otherwise have to remember to look for: an unfilled setting,
+   a contract missing from the index, a protocol that has moved on upstream.
 4. **Confirm you are on the working branch** (§6). If not, switch first.
 5. **Tell the human where things stand** — three to five lines: current state, what this
    session is about, any open question. Then start.
@@ -304,16 +304,16 @@ this table.
 | Contract enforcement (§3) | ✅ the project's enforcement tests |
 | Commit-time lint/type gate (§6) | ✅ commit hook |
 | Working branch / fast-forward promotion (§6) | ✅ health check (§12) |
-| This file's version drift (§1) | ✅ `flowpad check` |
-| Scaffold integrity — anchor line, contract index, filled-in slots | ✅ `flowpad check` |
-| Noticing a newer protocol exists | ✅ `flowpad check`, mechanically when wired into the commit gate (`init --wire`) |
+| This file's version drift (§1) | ✅ installation check |
+| Scaffold integrity — anchor line, contract index, filled-in settings | ✅ installation check |
+| Noticing a newer protocol exists | ✅ installation check, mechanically once wired into the commit gate |
 | Session-opening orientation (§2) | ⚠️ none — intent only |
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
-| Stack guides going stale | ✅ `flowpad check` (`last-reviewed` age) |
-| Edits to this read-only file outside §12 | ✅ `flowpad check` |
+| Stack guides going stale | ✅ installation check (`last-reviewed` age) |
+| Edits to this read-only file outside §12 | ✅ installation check |
 
 The "intent only" rows erode over a long session. The fix is not to make this document
 longer or sterner; it is to turn the rule into something executable. **If a rule is
@@ -352,8 +352,22 @@ drift. One question, one answer: protocol → this file; project → the instruc
 command for the commit flow and the health check, permission settings for §4. Without
 them the protocol still works — it just runs on judgement instead of reflex.
 
-**Step 4 — scaffolding.** `init` writes `contracts/` (index + template) if it is
+**Step 4 — scaffolding.** Installation writes `contracts/` (index + template) if it is
 missing, and never touches it if it already exists. Then fill in §12.
+
+**How this copy was installed.** This document is distributed as an npm package and
+put in place by it:
+
+```
+npx flowpad init --agent=<claude|codex|cursor|gemini> --wire   # install + anchor + gate
+npx flowpad check                                              # the installation check
+npx flowpad update                                             # take a newer protocol
+npx flowpad guide list | guide add <stack>                     # language/framework guides
+```
+
+The package is one way to install this document, not a requirement of it: everything
+above works if the files are copied by hand. What the tooling buys is the check —
+without something that goes red, §9's guardians are prose.
 
 ---
 
@@ -364,11 +378,11 @@ Repeated rules drift, so these live elsewhere on purpose:
 - **Universal coding principles** — never swallow errors, fix the class rather than the
   instance, comment the *why*, no dead code, prefer early returns → the agent's
   **global** instructions.
-- **Language and framework guides** → separate files, installed per repository with
-  `npx flowpad guide add <stack>` and opened when relevant. They are kept apart from this
+- **Language and framework guides** → separate files, installed per repository
+  alongside this one (§10) and opened when relevant. They are kept apart from this
   document on purpose: a framework guide ages on the framework's clock, not the protocol's,
-  and each carries a `last-reviewed` date that `flowpad check` warns about once it goes
-  stale. A guide that quietly rots is worse than no guide — an agent will apply it with
+  and each carries a `last-reviewed` date that the installation check warns about once
+  it goes stale. A guide that quietly rots is worse than no guide — an agent will apply it with
   full confidence.
 - **Security and operations rules** (never put secrets on a command line, …) → global
   instructions.
@@ -381,14 +395,14 @@ Repeated rules drift, so these live elsewhere on purpose:
 ## 12. This project
 
 *Everything above is the same everywhere. This section is the only part that differs.
-`flowpad init` fills in what it can detect and leaves the rest as `<TODO>`;
-`flowpad check` warns while any remain.*
+installation fills in what the repository can answer and leaves the rest as `<TODO>`;
+the check warns while any remain.*
 
 **A `<TODO>` slot is a question for the human, not a gap to fill in with a guess.**
 Guessing is worse than leaving it empty: an empty slot keeps `check` complaining, a
 wrong one looks settled and gets obeyed.
 
-`flowpad init` answers what the repository can answer — including answering `none`,
+Installation answers what the repository can answer — including answering `none`,
 which is a real answer and not a gap: plenty of repositories deploy nothing and keep no
 wins file. Anything it filled by inference says so in the cell, so a human can correct
 it at a glance. **Often nothing is left to ask.**
