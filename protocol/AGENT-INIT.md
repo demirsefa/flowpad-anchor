@@ -367,8 +367,14 @@ Repeated rules drift, so these live elsewhere on purpose:
 Guessing is worse than leaving it empty: an empty slot keeps `check` complaining, a
 wrong one looks settled and gets obeyed.
 
+`flowpad init` answers what the repository can answer — including answering `none`,
+which is a real answer and not a gap: plenty of repositories deploy nothing and keep no
+wins file. Anything it filled by inference says so in the cell, so a human can correct
+it at a glance. **Often nothing is left to ask.**
+
 **Assume the human has never read this file.** Someone installed the protocol; that
-does not mean anyone read it, and it is not their job to. So when you ask:
+does not mean anyone read it, and it is not their job to. So if something genuinely is
+left to ask:
 
 - **Never quote this document at them.** No section numbers, no "slot", no
   "promotion chain", none of this document's vocabulary. Ask in the words their

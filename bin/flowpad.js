@@ -174,11 +174,62 @@ function ask(question) {
 // so that `check` keeps complaining until a human decides.
 function detectSlots(root) {
   const slots = {};
+  const here = (...p) => path.join(root, ...p);
   const branch = gitBranch(root);
   if (branch && branch !== 'HEAD') slots['Working branch (§6)'] = `\`${branch}\``;
 
-  if (exists(path.join(root, CONTRACTS_DIR, 'README.md')))
+  if (exists(here(CONTRACTS_DIR, 'README.md')))
     slots['Contract index'] = `\`${CONTRACTS_DIR}/README.md\``;
+
+  // The instruction file carrying the anchor is, by definition, where project rules
+  // belong (§10 step 2) — asking a human where to put them is asking a question the
+  // repository already answers.
+  const instruction = ANCHOR_TARGETS.filter((f) => exists(here(f)));
+  if (instruction.length)
+    slots['Additional project rules'] = instruction.map((f) => `\`${f}\``).join(' · ');
+
+  // Task surface: a conventional folder or file, if one is there.
+  const taskHome = ['dev/tasks', 'tasks', 'TASKS.md', 'docs/tasks'].find((f) => exists(here(f)));
+  if (taskHome) slots['Task surface (§5)'] = `\`${taskHome}\``;
+
+  // Where wins are recorded — a file that exists, or an honest "not yet".
+  const wins = ['dev/BRAG.md', 'dev/WINS.md', 'BRAG.md', 'WINS.md', 'dev/HIGHLIGHTS.md'].find(
+    (f) => exists(here(f)),
+  );
+  slots['Where wins are recorded (§8)'] = wins ? `\`${wins}\`` : 'none yet';
+
+  // Deployment: look for the machinery. Absence is a real answer, not a gap — many
+  // repositories legitimately deploy nothing.
+  const deploySigns = [
+    '.github/workflows',
+    '.gitlab-ci.yml',
+    'Dockerfile',
+    'fly.toml',
+    'vercel.json',
+    'netlify.toml',
+    'Procfile',
+    'render.yaml',
+  ].filter((f) => exists(here(f)));
+  if (!deploySigns.length) slots['How a change reaches production (§6)'] = 'none — nothing deploys from this repo';
+
+  // Branching model: inferred from evidence, and marked as inferred so a human can
+  // correct it at a glance instead of being interrogated up front.
+  try {
+    const authors = execFileSync('git', ['-C', root, 'shortlog', '-sn', '--all'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .trim()
+      .split('\n')
+      .filter(Boolean).length;
+    const reviewMachinery = ['.github/PULL_REQUEST_TEMPLATE.md', '.github/CODEOWNERS'].some((f) =>
+      exists(here(f)),
+    );
+    if (authors === 1 && !reviewMachinery)
+      slots['Branching model (§6)'] = 'solo (single branch) — inferred, correct if wrong';
+  } catch {
+    // No history yet (fresh repo): leave it as a question rather than assume.
+  }
 
   const pkgPath = path.join(root, 'package.json');
   if (exists(pkgPath)) {
