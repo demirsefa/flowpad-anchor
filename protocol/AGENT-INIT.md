@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 5
+version: 6
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -38,8 +38,8 @@ Nothing here is specific to one project. Everything that is belongs in §12.
 rest is reference, opened when relevant.*
 
 1. **Start a session by orienting, not by coding.** Scan the contract index, open the
-   contract covering what you are about to touch, look at open work, then tell the
-   human where things stand and what you are about to do. (§2)
+   contract covering what you are about to touch and the guide for its stack, look at
+   open work, then tell the human where things stand and what you are about to do. (§2)
 2. **A rule is anchored + enforced, or it is not a rule.** If a check goes red, do not
    fix the check — read the contract first. (§3)
 3. **Reversible development work does not need permission.** Deployment, destruction,
@@ -55,8 +55,8 @@ rest is reference, opened when relevant.*
 8. **End a session on purpose:** loose ends → tasks → commit → verify understanding. (§8)
 9. **Don't claim what you didn't verify.** If a test failed, show it. If a step was
    skipped, say so. (§7)
-10. **Universal coding principles are not repeated here** — they belong in the agent's
-    global instructions. (§11)
+10. **Universal coding principles are not repeated here** — they live in
+    `PRINCIPLES.md`, installed next to this file. Read it. (§11)
 11. **This file is read-only.** Only the §12 slot values may be filled in; everything
     else you want to write belongs in the project's own instruction file. `update`
     overwrites this file.
@@ -106,13 +106,17 @@ Before writing code:
 
 1. **Scan the contract index** — `contracts/README.md`. If the area you are about to
    touch has a contract, **open it**. Do not read them all.
-2. **Look at the open work** for this project (§5, §12) — what is in flight, where the
+2. **Open the guide for the stack you are about to touch** — `guides/`. If there is
+   none and the stack matches one on offer, propose installing it; do not install it
+   yourself. `PRINCIPLES.md` next to it applies to every session (§11).
+3. **Look at the open work** for this project (§5, §12) — what is in flight, where the
    last session stopped.
-3. **Run the installation check** if this project has one wired (§10). It answers in
+4. **Run the installation check** if this project has one wired (§10). It answers in
    one shot what you would otherwise have to remember to look for: an unfilled setting,
-   a contract missing from the index, a protocol that has moved on upstream.
-4. **Confirm you are on the working branch** (§6). If not, switch first.
-5. **Tell the human where things stand** — three to five lines: current state, what this
+   a contract missing from the index, a missing stack guide, a protocol that has moved
+   on upstream.
+5. **Confirm you are on the working branch** (§6). If not, switch first.
+6. **Tell the human where things stand** — three to five lines: current state, what this
    session is about, any open question. Then start.
 
 **Why:** the person running you is usually running several sessions and cannot hold all
@@ -312,7 +316,8 @@ this table.
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
-| Stack guides going stale | ✅ installation check (`last-reviewed` age) |
+| Stack guides and `PRINCIPLES.md` — missing or stale | ✅ installation check (detected stack, `last-reviewed` age) |
+| The §10 step 3 reflexes are actually wired | ⚠️ none — intent only |
 | Edits to this read-only file outside §12 | ✅ installation check |
 
 The "intent only" rows erode over a long session. The fix is not to make this document
@@ -347,13 +352,21 @@ project-specific things: architecture warnings, local commands, deployment speci
 Do not copy protocol rules into it. Copy them and you have two sources; two sources
 drift. One question, one answer: protocol → this file; project → the instruction file.
 
-**Step 3 — reflexes, where available.** If your agent supports them, some of the
-"intent only" rows in §9 become mechanical: a session-stop hook for §8, a callable
-command for the commit flow and the health check, permission settings for §4. Without
-them the protocol still works — it just runs on judgement instead of reflex.
+**Step 3 — reflexes.** Several "intent only" rows in §9 become mechanical if the agent
+supports them. **An agent reading this should offer to wire them, not wait to be asked** —
+and then stop at the offer, because these are edits to the human's own configuration (§4).
+Nothing checks whether they exist, which is exactly why the offer has to be made out loud.
+
+| Agent | What to offer |
+|---|---|
+| Claude Code | a slash command for the commit flow and the health check · a `Stop` hook for §8 · permissions in `.claude/settings.json` for §4 |
+| Codex / Cursor / Gemini / other | the same three, in whatever form that agent has: a callable command, an end-of-session hook, a permission list |
+
+Without them the protocol still works — it just runs on judgement instead of reflex.
 
 **Step 4 — scaffolding.** Installation writes `contracts/` (index + template) if it is
-missing, and never touches it if it already exists. Then fill in §12.
+missing, and never touches it if it already exists. It also installs `PRINCIPLES.md`
+(§11) next to this file. Then fill in §12.
 
 **How this copy was installed.** This document is distributed as an npm package and
 put in place by it:
@@ -376,16 +389,16 @@ without something that goes red, §9's guardians are prose.
 Repeated rules drift, so these live elsewhere on purpose:
 
 - **Universal coding principles** — never swallow errors, fix the class rather than the
-  instance, comment the *why*, no dead code, prefer early returns → the agent's
-  **global** instructions.
+  instance, comment the *why*, no dead code, prefer early returns — and **security and
+  operations rules**, such as never putting a secret on a command line → `PRINCIPLES.md`,
+  installed alongside this one (§10). They apply to every session without being asked
+  for, so unlike a stack guide there is no "open it when relevant": read it once, early.
 - **Language and framework guides** → separate files, installed per repository
-  alongside this one (§10) and opened when relevant. They are kept apart from this
-  document on purpose: a framework guide ages on the framework's clock, not the protocol's,
-  and each carries a `last-reviewed` date that the installation check warns about once
-  it goes stale. A guide that quietly rots is worse than no guide — an agent will apply it with
-  full confidence.
-- **Security and operations rules** (never put secrets on a command line, …) → global
-  instructions.
+  alongside this one (§10), and **opening them is the agent's job (§2)**. They are kept
+  apart from this document on purpose: a framework guide ages on the framework's clock,
+  not the protocol's, and each carries a `last-reviewed` date that the installation check
+  warns about once it goes stale. A guide that quietly rots is worse than no guide — an
+  agent will apply it with full confidence.
 - **Project law** — architecture invariants, engine rules, domain constraints →
   `contracts/`.
 - **Project commands** — test runner, deployment tool, local setup → §12.

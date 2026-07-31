@@ -38,8 +38,13 @@ Prose convinces. Only the test binds. This protocol is the practice of keeping b
 
 - `AGENT-INIT.md` — the protocol an agent reads at the start of a session: the first
   60 seconds, what to ask and what to just do, how work is reported, how a session ends.
+- `PRINCIPLES.md` — the coding principles that hold in every language and every session:
+  never swallow errors, fix the class rather than the instance, comment the *why*, no
+  dead code, never put a secret on a command line.
 - `contracts/` — the place project-specific laws live, with a template that refuses to
   be filled in without naming what enforces it.
+- `guides/` — optional per-stack guides (React, TypeScript, …), installed only for the
+  stacks the repository actually uses.
 - An **anchor line** in whichever instruction file your agent loads automatically
   (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `GEMINI.md`, …) — without it, no agent
   ever reads any of this.
@@ -50,12 +55,15 @@ Prose convinces. Only the test binds. This protocol is the practice of keeping b
 npx flowpad init --agent=claude --wire   # install, anchor, and wire the commit gate
 npx flowpad check                        # verify; exits non-zero when something is off
 npx flowpad update                       # take a newer protocol, keeping your §12 slots
+npx flowpad guide add react              # install a stack guide
 ```
 
 `check` is the part that matters. It verifies that the anchor line is still there, that
 every project slot is filled in, that the contract index and the files on disk still
-agree in both directions, and that a commit gate is actually registered — not merely
-present as a file.
+agree in both directions, that a commit gate is actually registered — not merely present
+as a file — and that the repository's own stack has a guide installed and none of them
+have gone stale. It reads every `package.json` in the tree, so a workspace whose root
+carries no manifest is detected from its child repositories.
 
 `--wire` is what makes that mechanical rather than remembered: it adds `flowpad check`
 to the pre-commit hook (and, where there is a `package.json`, pins the dependency). A

@@ -97,6 +97,41 @@ Tool references were scattered through the document, which made it read as a pro
 manual and made a hand-copied version half-meaningless. They now live in one section.
 The package is one way to install the document, not a requirement of it.
 
+### A rule an agent skips is a placement bug, not a prose bug
+
+An agent read the whole protocol and still never installed a stack guide, never
+suggested one, and never mentioned §10's reflexes. The reason was placement: §2 is a
+numbered list of actions and is the only section an agent converts into work. Guides
+appeared only under "Installing" (read as the installer's job, not the reader's) and
+"Deliberately not here" (read as "not your problem"). The fix was a numbered step in
+§2, a clause in the digest, and a heading that no longer contradicts its contents —
+not more prose.
+
+### Missing is a worse failure than stale, and it was the invisible one
+
+`check` reported green in a repository with zero guides. It only aged the guides that
+were installed, and when the folder did not exist it emitted no row at all — so
+"nothing is installed" and "nothing to report" looked identical. Guides were anchored
+but not enforced, in a document whose central claim is that the pair is what binds.
+`check` now detects the stack from every `package.json` in the tree and goes amber for
+a guide that is missing, not merely old.
+
+Related: a summary line reading "All checks passed" above amber rows was doing the same
+damage in miniature. Green now means nothing is outstanding.
+
+### Universal principles ship with the package
+
+They used to be delegated to the agent's global instructions — correct for avoiding a
+second copy, wrong for portability: global instructions do not travel with an npm
+package, so handing someone the package delivered half the standard. They now install
+as `PRINCIPLES.md` next to the protocol: same treatment as a stack guide (versioned,
+dated, warned about when stale), and still not embedded in the protocol body.
+
+The condition attached to this: the principles must be *deleted* from the global
+instructions rather than mirrored there. A copy in both places is Failure 1's disease
+with no guardian, which is why the tempting middle option — ship a minimal core, keep
+the long form global — was rejected outright.
+
 ### Publishing is a delivery, not a development loop
 
 Twelve releases went out in a single session because publishing was used to propagate

@@ -21,13 +21,26 @@ const LOCK = '.flowpad-lock.json';
 // user's own edit — which is the one thing it must never get wrong.
 const BASE = '.flowpad-upstream.md';
 const GUIDES_DIR = `${PROTOCOL_DIR}/guides`;
-const STALE_DAYS = 180; // a stack guide older than this is suspect, not wrong
+const PRINCIPLES = `${PROTOCOL_DIR}/PRINCIPLES.md`;
+const STALE_DAYS = 180; // a guide older than this is suspect, not wrong
 
-// How a repository announces which stack it is. Detection only ever *suggests* a
-// guide — installing one is the user's call, like every other write here.
+// Files this package owns in the consuming repository. Anything listed here is
+// installed by `init`, refreshed by `update`, and hashed into the lock so a local
+// edit can be told from an upstream change. The list exists because a second
+// managed file used to mean a second copy of that logic — and the copy that gets
+// forgotten is the one that silently overwrites somebody's work.
+const MANAGED = [
+  { src: path.join(SRC, 'AGENT-INIT.md'), dest: `${PROTOCOL_DIR}/AGENT-INIT.md`, slots: true },
+  { src: path.join(SRC, '..', 'principles', 'CODE-PRINCIPLES.md'), dest: PRINCIPLES },
+];
+const PROTOCOL_FILE = MANAGED[0].dest;
+
+// How a repository announces which stack it is, read from one package.json. Detection
+// only ever *suggests* a guide — installing one is the user's call, like every other
+// write here.
 const STACK_SIGNS = {
-  react: (r) => dep(r, 'react'),
-  typescript: (r) => dep(r, 'typescript'),
+  react: (deps) => deps.react,
+  typescript: (deps) => deps.typescript,
 };
 
 // The instruction files agents load automatically. Order matters only for the
@@ -41,7 +54,11 @@ const AGENT_FILES = {
   gemini: 'GEMINI.md',
 };
 const ANCHOR_MARK = `${PROTOCOL_DIR}/AGENT-INIT.md`;
-const ANCHOR_LINE = `The working protocol for this repository is in \`${ANCHOR_MARK}\` — read it at the start of a session.`;
+// The instruction file is the only thing an agent loads without being told to, so the
+// anchor names both files rather than relying on the protocol to forward the reader to
+// the second one. Principles apply to every session; a hop that can be skipped is a hop
+// that will be.
+const ANCHOR_LINE = `The working protocol for this repository is in \`${ANCHOR_MARK}\` — read it at the start of a session, together with \`${PRINCIPLES}\` (coding principles that hold in every session).`;
 
 // ---- small helpers ---------------------------------------------------------
 
@@ -79,21 +96,52 @@ function gitBranch(root) {
   }
 }
 
-// Reads a dependency version from package.json, in any of the three fields.
-function dep(root, name) {
-  const p = path.join(root, 'package.json');
-  if (!exists(p)) return null;
+// Every package.json worth reading: the root's, plus one level of child directories.
+// Both, not either — a workspace root often carries a manifest of its own *and* one
+// per sub-repo, and looking at only one of them mis-reads the project. This is the
+// single place that rule is written; slot detection and stack detection share it.
+function manifests(root) {
+  const out = [];
+  const load = (dir, rel) => {
+    const p = path.join(dir, 'package.json');
+    if (!exists(p)) return;
+    try {
+      out.push({ rel, dir, pkg: JSON.parse(read(p)) });
+    } catch {
+      // Malformed manifest: skip it rather than guess. Detection is best-effort by
+      // design — a wrong answer is worse than an empty one (§12).
+    }
+  };
+  load(root, '.');
+  let children = [];
   try {
-    const pkg = JSON.parse(read(p));
-    return (
-      (pkg.dependencies || {})[name] ||
-      (pkg.devDependencies || {})[name] ||
-      (pkg.peerDependencies || {})[name] ||
-      null
-    );
+    children = fs
+      .readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules');
   } catch {
-    return null;
+    children = [];
   }
+  for (const e of children) load(path.join(root, e.name), e.name);
+  return out;
+}
+
+const depsOf = (pkg) => ({
+  ...(pkg.peerDependencies || {}),
+  ...(pkg.devDependencies || {}),
+  ...(pkg.dependencies || {}),
+});
+
+// { react: ['app', 'admin'], … } — which stacks this repository uses, and where.
+function detectStacks(root) {
+  const found = {};
+  for (const { rel, pkg } of manifests(root)) {
+    const deps = depsOf(pkg);
+    for (const [stack, sign] of Object.entries(STACK_SIGNS)) {
+      if (!sign(deps)) continue;
+      (found[stack] = found[stack] || []).push(rel === '.' ? 'package.json' : rel);
+    }
+  }
+  return found;
 }
 
 // Minimal LCS line diff. Zero dependencies is a feature here: this runs inside a
@@ -145,6 +193,18 @@ function availableGuides() {
     .readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
     .map((f) => f.replace(/\.md$/, ''));
+}
+
+// Why a dated advice file should not be trusted, or [] when it is fine. Guides and the
+// principles file share this rule: a silently rotting one is worse than none, because
+// an agent applies it with full confidence.
+function staleReason(file, name) {
+  if (!exists(file)) return [];
+  const meta = frontMatter(read(file));
+  if (!meta['last-reviewed']) return [`${name} (no last-reviewed date)`];
+  const age = (Date.now() - Date.parse(meta['last-reviewed'])) / 86400000;
+  if (Number.isNaN(age)) return [`${name} (unparsable date)`];
+  return age > STALE_DAYS ? [`${name} (${Math.round(age)} days old)`] : [];
 }
 
 function protocolVersion(text) {
@@ -217,43 +277,26 @@ function detectSlots(root) {
   // branches, and this exact guess was wrong on the first real repository it met.
   // Guessing is worse than leaving it empty (§12).
 
-  const scriptsIn = (dir) => {
-    try {
-      return JSON.parse(read(path.join(dir, 'package.json'))).scripts || {};
-    } catch {
-      // Missing or malformed manifest: best-effort detection, leave the slot empty.
-      return {};
-    }
-  };
-
-  const rootScripts = exists(here('package.json')) ? scriptsIn(root) : null;
+  // Commands: the root's own manifest answers for the whole project when it has one.
+  // Otherwise a workspace root carries none while every child repo does, and looking
+  // only at the root would report "unknown" for a project that in fact has one command
+  // per sub-repo.
+  const found = manifests(root);
+  const rootScripts = (found.find((m) => m.rel === '.') || {}).pkg;
   if (rootScripts) {
-    const test = ['full-test', 'test'].find((n) => rootScripts[n]);
+    const scripts = rootScripts.scripts || {};
+    const test = ['full-test', 'test'].find((n) => scripts[n]);
     if (test) slots['Test command'] = `\`npm run ${test}\``;
-    const health = ['doctor', 'lint', 'validate'].find((n) => rootScripts[n]);
+    const health = ['doctor', 'lint', 'validate'].find((n) => scripts[n]);
     if (health) slots['Health check (§9)'] = `\`npm run ${health}\``;
   } else {
-    // A workspace root often carries no manifest of its own while every child repo
-    // does. Looking only at the root would report "unknown" for a project that in
-    // fact has one command per sub-repo.
-    let children = [];
-    try {
-      children = fs
-        .readdirSync(root, { withFileTypes: true })
-        .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
-        .map((e) => here(e.name))
-        .filter((d) => exists(path.join(d, 'package.json')));
-    } catch {
-      children = [];
-    }
-    if (children.length) {
-      const shared = (names) =>
-        names.find((n) => children.filter((d) => scriptsIn(d)[n]).length >= 2);
-      const health = shared(['validate', 'lint', 'typecheck']);
-      const test = shared(['test', 'full-test']);
-      if (health) slots['Health check (§9)'] = `per sub-repo: \`npm run ${health}\``;
-      if (test) slots['Test command'] = `per sub-repo: \`npm run ${test}\``;
-    }
+    const children = found.filter((m) => m.rel !== '.');
+    const shared = (names) =>
+      names.find((n) => children.filter((m) => (m.pkg.scripts || {})[n]).length >= 2);
+    const health = shared(['validate', 'lint', 'typecheck']);
+    const test = shared(['test', 'full-test']);
+    if (health) slots['Health check (§9)'] = `per sub-repo: \`npm run ${health}\``;
+    if (test) slots['Test command'] = `per sub-repo: \`npm run ${test}\``;
   }
   return slots;
 }
@@ -371,9 +414,42 @@ function wireInto(root, results) {
   results.push([c.ok(body ? 'wired' : 'created'), `${path.relative(root, hook)} → ${cmd}`]);
 }
 
+// Guides are suggested, never installed uninvited (§4) — but a missing one must not be
+// silent either, or it stays missing forever. Interactively this is one keystroke;
+// non-interactively (an agent running init from a shell) it prints the command and
+// `check` keeps it amber until somebody runs it.
+function offerGuides(root, opts = {}) {
+  const stacks = detectStacks(root);
+  const available = availableGuides();
+  const installedDir = path.join(root, GUIDES_DIR);
+  const already = exists(installedDir)
+    ? new Set(fs.readdirSync(installedDir).map((f) => f.replace(/\.md$/, '')))
+    : new Set();
+  const missing = Object.keys(stacks).filter((s) => available.includes(s) && !already.has(s));
+  if (!missing.length) return;
+
+  const cmd = `npx flowpad guide add ${missing.join(' ')}`;
+  if (opts.guides || ask(`\nInstall the ${missing.join(', ')} guide(s) for this repo?`)) {
+    guide(root, 'add', missing);
+    return;
+  }
+  console.log(`\n${c.warn('Guides:')} ${missing.join(', ')} detected but not installed — ${c.b(cmd)}`);
+}
+
+// §10 step 3: the reflexes that turn "intent only" rows in §9 into something
+// mechanical. Nothing checks whether they were wired, so the least this tool can do is
+// name them at the moment the agent is looking at its output.
+const REFLEXES = {
+  claude:
+    'a slash command for the commit flow + health check, a Stop hook for §8, and permissions in .claude/settings.json for §4',
+  codex: 'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
+  cursor: 'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
+  gemini: 'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
+};
+
 function init(root, force, opts = {}) {
   const results = [];
-  const protocolSrc = read(path.join(SRC, 'AGENT-INIT.md'));
+  const protocolSrc = read(MANAGED[0].src);
 
   // The contracts folder belongs to the project. Seed it only when absent, and
   // never touch it again — an existing index is knowledge we must not clobber.
@@ -389,7 +465,9 @@ function init(root, force, opts = {}) {
 
   const slots = detectSlots(root);
   const installed = applySlots(protocolSrc, slots);
-  writeFile(root, `${PROTOCOL_DIR}/AGENT-INIT.md`, installed, force, results);
+  writeFile(root, PROTOCOL_FILE, installed, force, results);
+  for (const file of MANAGED.slice(1))
+    writeFile(root, file.dest, read(file.src), force, results);
 
   anchorInto(root, results, opts.anchor);
   if (opts.wire) wireInto(root, results);
@@ -398,23 +476,19 @@ function init(root, force, opts = {}) {
   // "the user edited this" distinguishable from "upstream moved".
   // Record what is actually on disk, not what we would have written — when the file
   // was kept, claiming otherwise would make `update` mis-detect the user's edits.
-  const onDisk = read(path.join(root, `${PROTOCOL_DIR}/AGENT-INIT.md`));
-  const lock = {
-    package: PKG.name,
-    packageVersion: PKG.version,
-    protocolVersion: protocolVersion(onDisk),
-    files: {
-      [`${PROTOCOL_DIR}/AGENT-INIT.md`]: { installed: sha(onDisk), upstream: sha(protocolSrc) },
-    },
-  };
   fs.writeFileSync(
     path.join(root, PROTOCOL_DIR, LOCK),
-    `${JSON.stringify(lock, null, 2)}\n`,
+    `${JSON.stringify(lockRecord(root), null, 2)}\n`,
   );
   fs.writeFileSync(path.join(root, PROTOCOL_DIR, BASE), protocolSrc);
   results.push([c.ok('wrote'), `${PROTOCOL_DIR}/${LOCK}`]);
 
   for (const [tag, file] of results) console.log(`  ${tag}  ${file}`);
+  offerGuides(root, opts);
+
+  const reflex = REFLEXES[opts.agent];
+  if (reflex) console.log(`\n${c.dim(`Reflexes (§10 step 3) — ${opts.agent}: ${reflex}`)}`);
+
   const todos = (installed.match(/^\|[^|]+\|[^|]*<TODO>[^|]*\|$/gm) || []).length;
   console.log(
     todos
@@ -437,7 +511,7 @@ function check(root) {
   const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
 
   if (!exists(installed)) {
-    add('FAIL', 'protocol', `${PROTOCOL_DIR}/AGENT-INIT.md is missing — run \`npx flowpad init\``);
+    add('FAIL', 'protocol', `${PROTOCOL_FILE} is missing — run \`npx flowpad init\``);
     report(rows);
     return 1;
   }
@@ -463,16 +537,16 @@ function check(root) {
     add('WARN', 'version', `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\``);
   else if (
     lock.files &&
-    lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`] &&
-    lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`].upstream &&
-    lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`].upstream !== sha(upstream)
+    lock.files[PROTOCOL_FILE] &&
+    lock.files[PROTOCOL_FILE].upstream &&
+    lock.files[PROTOCOL_FILE].upstream !== sha(upstream)
   ) {
     // The declared version is hand-maintained and was, in practice, forgotten while
     // the body changed across several releases. The recorded upstream hash cannot be
     // forgotten, so drift is detected from it and the version is only a label.
     add('WARN', 'version', `v${localV} body has moved on upstream — run \`npx flowpad update\``);
   } else {
-    const entry = (lock.files || {})[`${PROTOCOL_DIR}/AGENT-INIT.md`];
+    const entry = (lock.files || {})[PROTOCOL_FILE];
     const installedSha = entry && (entry.installed || entry);
     if (installedSha === sha(local)) {
       add('PASS', 'version', `v${localV}, as installed`);
@@ -549,25 +623,38 @@ function check(root) {
   else if (hasDefaultHook) add('PASS', 'commit-gate', '.git/hooks/pre-commit');
   else add('WARN', 'commit-gate', 'no pre-commit hook registered — §6 is unguarded');
 
-  // 6. guides — the danger is not a wrong guide, it is a stale one applied confidently
+  // 6. guides — two failure modes, and the first one used to be invisible. A stale
+  //    guide is dangerous because an agent applies it with full confidence; a *missing*
+  //    one is worse, because nothing in the session ever mentions the stack at all.
+  //    This row is emitted unconditionally: an empty guides folder was previously no
+  //    row, which read as "nothing to report" when it meant "nothing is installed".
   const gdir = path.join(root, GUIDES_DIR);
-  if (exists(gdir)) {
-    const stale = [];
-    for (const f of fs.readdirSync(gdir).filter((x) => x.endsWith('.md'))) {
-      const meta = frontMatter(read(path.join(gdir, f)));
-      const name = f.replace(/\.md$/, '');
-      if (!meta['last-reviewed']) {
-        stale.push(`${name} (no last-reviewed date)`);
-        continue;
-      }
-      const age = (Date.now() - Date.parse(meta['last-reviewed'])) / 86400000;
-      if (Number.isNaN(age)) stale.push(`${name} (unparsable date)`);
-      else if (age > STALE_DAYS) stale.push(`${name} (${Math.round(age)} days old)`);
-    }
-    stale.length
-      ? add('WARN', 'guides', `review needed: ${stale.join(', ')}`)
-      : add('PASS', 'guides', `${fs.readdirSync(gdir).length} guide(s), all reviewed recently`);
+  const files = exists(gdir) ? fs.readdirSync(gdir).filter((x) => x.endsWith('.md')) : [];
+  const installedGuides = new Set(files.map((f) => f.replace(/\.md$/, '')));
+  const stale = [];
+  for (const f of files) stale.push(...staleReason(path.join(gdir, f), f.replace(/\.md$/, '')));
+  stale.push(...staleReason(path.join(root, PRINCIPLES), 'principles'));
+
+  const available = availableGuides();
+  const stacks = detectStacks(root);
+  const missing = Object.entries(stacks)
+    .filter(([s]) => available.includes(s) && !installedGuides.has(s))
+    .map(([s, where]) => `${s} (detected in ${where.join(', ')})`);
+
+  if (!exists(path.join(root, PRINCIPLES)))
+    add('WARN', 'principles', `${PRINCIPLES} missing — run \`npx flowpad update\``);
+
+  if (missing.length) {
+    const names = missing.map((m) => m.split(' ')[0]).join(' ');
+    add('WARN', 'guides', `not installed: ${missing.join(', ')} — \`npx flowpad guide add ${names}\``);
   }
+  if (stale.length) add('WARN', 'guides', `review needed: ${stale.join(', ')}`);
+  if (!missing.length && !stale.length)
+    add(
+      'PASS',
+      'guides',
+      files.length ? `${files.length} guide(s), all reviewed recently` : 'no known stack detected',
+    );
 
   report(rows);
   return failed ? 1 : 0;
@@ -581,14 +668,64 @@ function report(rows) {
   }
   const fails = rows.filter(([l]) => l === 'FAIL').length;
   const warns = rows.filter(([l]) => l === 'WARN').length;
-  console.log(
-    fails
-      ? `\n${c.bad(`${fails} failure(s)`)}${warns ? `, ${warns} warning(s)` : ''}`
-      : `\n${c.ok('All checks passed.')}${warns ? c.warn(`  (${warns} warning(s))`) : ''}`,
-  );
+  // Green only when there is genuinely nothing left. A summary that reads "all checks
+  // passed" while something is missing is the failure this check exists to prevent —
+  // the amber rows above it get skimmed past, and the missing thing stays missing.
+  if (fails)
+    console.log(`\n${c.bad(`${fails} failure(s)`)}${warns ? `, ${warns} warning(s)` : ''}`);
+  else if (warns)
+    console.log(`\n${c.warn(`${warns} warning(s)`)} ${c.dim('— nothing failed, but the setup is incomplete.')}`);
+  else console.log(`\n${c.ok('All checks passed.')}`);
 }
 
 // ---- update ----------------------------------------------------------------
+
+// The managed files that carry no §12 slots. They are plain upstream copies, so the
+// only question is whether the local one was edited — handled here rather than inside
+// `update`'s slot-merge path, which does not apply to them. Runs before that path's
+// early returns, so a release that only touches a sidecar still lands.
+function syncSidecars(root, force, lock) {
+  for (const file of MANAGED.slice(1)) {
+    const abs = path.join(root, file.dest);
+    const upstream = read(file.src);
+    if (!exists(abs)) {
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, upstream);
+      console.log(`  ${c.ok('installed')}  ${file.dest}`);
+      continue;
+    }
+    const local = read(abs);
+    if (local === upstream) continue;
+    const recorded = ((lock && lock.files) || {})[file.dest];
+    const edited = recorded ? recorded.installed !== sha(local) : true;
+    if (edited && !force) {
+      console.log(`  ${c.warn('local edits')}  ${file.dest} — it is upstream's file (§11).`);
+      if (!ask('  Overwrite?')) {
+        console.log(c.dim('  Kept.'));
+        continue;
+      }
+    }
+    fs.writeFileSync(abs, upstream);
+    console.log(`  ${c.ok('updated')}  ${file.dest}`);
+  }
+}
+
+// The lock records both what is on disk and what upstream shipped, per managed file.
+// The pair is what makes "the user edited this" distinguishable from "upstream moved".
+function lockRecord(root) {
+  const files = {};
+  for (const file of MANAGED) {
+    const abs = path.join(root, file.dest);
+    if (exists(abs)) files[file.dest] = { installed: sha(read(abs)), upstream: sha(read(file.src)) };
+  }
+  const protocol = path.join(root, PROTOCOL_FILE);
+  return {
+    package: PKG.name,
+    packageVersion: PKG.version,
+    protocolVersion: exists(protocol) ? protocolVersion(read(protocol)) : null,
+    files,
+  };
+}
 
 function update(root, force) {
   const installedPath = path.join(root, PROTOCOL_DIR, 'AGENT-INIT.md');
@@ -600,10 +737,13 @@ function update(root, force) {
   const upstream = read(path.join(SRC, 'AGENT-INIT.md'));
   const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
   const lock = exists(lockPath) ? JSON.parse(read(lockPath)) : null;
-  const entry = lock && lock.files && lock.files[`${PROTOCOL_DIR}/AGENT-INIT.md`];
+  const entry = lock && lock.files && lock.files[PROTOCOL_FILE];
   const pristine = entry && (entry.installed || entry);
 
+  syncSidecars(root, force, lock);
+
   if (local === upstream) {
+    fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
     console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
     return 0;
   }
@@ -630,6 +770,7 @@ function update(root, force) {
     } else {
       console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
     }
+    fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
     return 0;
   }
 
@@ -645,7 +786,7 @@ function update(root, force) {
           .map(([, line]) => line)
       : null;
     console.log(
-      `${c.warn('Local edits detected')} in ${PROTOCOL_DIR}/AGENT-INIT.md ` +
+      `${c.warn('Local edits detected')} in ${PROTOCOL_FILE} ` +
         `(v${protocolVersion(local)} → v${protocolVersion(upstream)}).`,
     );
     console.log(`  ${c.ok(`${Object.keys(slots).length} §12 slot(s)`)} will be carried over.`);
@@ -668,21 +809,7 @@ function update(root, force) {
   }
 
   fs.writeFileSync(installedPath, merged);
-  fs.writeFileSync(
-    lockPath,
-    `${JSON.stringify(
-      {
-        package: PKG.name,
-        packageVersion: PKG.version,
-        protocolVersion: protocolVersion(upstream),
-        files: {
-          [`${PROTOCOL_DIR}/AGENT-INIT.md`]: { installed: sha(merged), upstream: sha(upstream) },
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
   fs.writeFileSync(path.join(root, PROTOCOL_DIR, BASE), upstream);
   console.log(c.ok('Updated.'), `v${protocolVersion(upstream)} — ${Object.keys(slots).length} slot(s) preserved.`);
   return 0;
@@ -697,17 +824,18 @@ function guide(root, sub, names) {
     ? fs.readdirSync(installedDir).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''))
     : [];
 
+  const stacks = detectStacks(root);
   if (!sub || sub === 'list') {
     for (const name of all) {
-      const sign = STACK_SIGNS[name] && STACK_SIGNS[name](root);
+      const where = stacks[name];
       // Pad before colouring — escape codes have width in a string but not on screen.
-      const word = installed.includes(name) ? 'installed' : sign ? 'suggested' : 'available';
+      const word = installed.includes(name) ? 'installed' : where ? 'suggested' : 'available';
       const paint = word === 'installed' ? c.ok : word === 'suggested' ? c.warn : c.dim;
       console.log(
-        `  ${paint(word.padEnd(10))}  ${name}${sign ? c.dim(`  (${name} ${sign} in package.json)`) : ''}`,
+        `  ${paint(word.padEnd(10))}  ${name}${where ? c.dim(`  (detected in ${where.join(', ')})`) : ''}`,
       );
     }
-    const suggest = all.filter((n) => !installed.includes(n) && STACK_SIGNS[n] && STACK_SIGNS[n](root));
+    const suggest = all.filter((n) => !installed.includes(n) && stacks[n]);
     if (suggest.length)
       console.log(`\n  ${c.dim(`npx flowpad guide add ${suggest.join(' ')}`)}`);
     return 0;
@@ -754,6 +882,7 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
                    file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
   ${c.dim('--wire')}           also wire \`flowpad check\` into the commit gate, so drift
                    goes red mechanically instead of relying on memory
+  ${c.dim('--guides')}         install the guides for the stacks detected here without asking
   ${c.dim('--force')}          skip the overwrite prompt
 `);
 }
@@ -769,11 +898,12 @@ if (agentName && !AGENT_FILES[agentName]) {
 }
 const anchor = agentName ? AGENT_FILES[agentName] : undefined;
 const wire = process.argv.includes('--wire');
+const guides = process.argv.includes('--guides');
 const root = repoRoot();
 
 switch (cmd) {
   case 'init':
-    init(root, force, { anchor, wire });
+    init(root, force, { anchor, agent: agentName, wire, guides });
     break;
   case 'check':
     process.exit(check(root));
