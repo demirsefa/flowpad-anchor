@@ -131,17 +131,39 @@ const depsOf = (pkg) => ({
   ...(pkg.dependencies || {}),
 });
 
-// { react: ['app', 'admin'], … } — which stacks this repository uses, and where.
+// { react: [{ where: 'app', range: '^18.2.0' }, …] } — which stacks this repository
+// uses, where, and at which version.
 function detectStacks(root) {
   const found = {};
   for (const { rel, pkg } of manifests(root)) {
     const deps = depsOf(pkg);
     for (const [stack, sign] of Object.entries(STACK_SIGNS)) {
-      if (!sign(deps)) continue;
-      (found[stack] = found[stack] || []).push(rel === '.' ? 'package.json' : rel);
+      const range = sign(deps);
+      if (!range) continue;
+      (found[stack] = found[stack] || []).push({
+        where: rel === '.' ? 'package.json' : rel,
+        range,
+      });
     }
   }
   return found;
+}
+
+const placesOf = (entries) => entries.map((e) => e.where);
+
+// The leading major in a version range: `^18.2.0` → 18, `~5.4` → 5, `>=20 <21` → 20.
+// Deliberately crude — this only ever decides whether to print a warning, so a range
+// exotic enough to defeat it should produce silence rather than a wrong claim.
+function majorOf(range) {
+  const m = String(range).match(/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+// `verified-against: react@18-19` → { name: 'react', from: 18, to: 19 }
+function verifiedAgainst(value) {
+  const m = String(value || '').match(/^([@\w./-]+)@(\d+)(?:\s*-\s*(\d+))?/);
+  if (!m) return null;
+  return { name: m[1], from: Number(m[2]), to: m[3] ? Number(m[3]) : Number(m[2]) };
 }
 
 // Minimal LCS line diff. Zero dependencies is a feature here: this runs inside a
@@ -205,6 +227,81 @@ function staleReason(file, name) {
   const age = (Date.now() - Date.parse(meta['last-reviewed'])) / 86400000;
   if (Number.isNaN(age)) return [`${name} (unparsable date)`];
   return age > STALE_DAYS ? [`${name} (${Math.round(age)} days old)`] : [];
+}
+
+// Why an installed guide no longer matches the repository, or [] when it does. A guide
+// reviewed against React 18 applied to a React 20 codebase is the same danger as a stale
+// one — confident, specific, and wrong — but the date cannot see it.
+function mismatchReason(file, name, entries) {
+  if (!exists(file) || !entries || !entries.length) return [];
+  const claim = verifiedAgainst(frontMatter(read(file))['verified-against']);
+  if (!claim) return [];
+  const out = [];
+  for (const { where, range } of entries) {
+    const major = majorOf(range);
+    // An unparsable range means silence, not a guess: the alternative is crying wolf on
+    // every `workspace:*` or git dependency.
+    if (major === null || (major >= claim.from && major <= claim.to)) continue;
+    const span = claim.from === claim.to ? `${claim.from}` : `${claim.from}-${claim.to}`;
+    out.push(`${name} verified against ${span}, ${where} uses ${major}`);
+  }
+  return out;
+}
+
+// The newest published version, or null when we cannot or should not ask.
+//
+// Why this exists: `check` compares the protocol on disk against the copy inside *this*
+// package, so a consumer pinned to an old release compares old-with-old and is told it
+// is current. Caret ranges on 0.x are minor-locked, so `^0.9.0` never picks up 0.10.0 —
+// the staleness is invisible from inside the repository.
+//
+// Constraints it has to respect: this runs in a commit hook. So the answer is cached
+// machine-wide (the registry's answer is not repository-specific), the call is given a
+// short timeout, and every failure path is silent — a missing network must never block
+// a commit or print a scary line.
+function latestVersion() {
+  if (process.env.FLOWPAD_NO_NETWORK || process.env.CI) return null;
+  const cacheFile = path.join(require('os').tmpdir(), 'flowpad-latest.json');
+  const DAY = 86400000;
+  let cache = null;
+  try {
+    cache = JSON.parse(read(cacheFile));
+  } catch {
+    cache = null;
+  }
+  const age = cache && cache.checkedAt ? Date.now() - cache.checkedAt : Infinity;
+  if (age < 7 * DAY) return cache.version || null;
+  // A failed lookup is cached for a day too, so an offline machine retries occasionally
+  // rather than paying the timeout on every single commit.
+  if (cache && !cache.version && age < DAY) return null;
+
+  let version = null;
+  try {
+    version = execFileSync('npm', ['view', PKG.name, 'version'], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    version = null;
+  }
+  try {
+    fs.writeFileSync(cacheFile, JSON.stringify({ checkedAt: Date.now(), version }));
+  } catch {
+    // A read-only temp dir costs us the cache, not the check.
+  }
+  return version;
+}
+
+// Numeric compare of two dotted versions; -1 / 0 / 1. Pre-release tags are ignored,
+// which is right here: a pre-release is not something to nag an installed repo about.
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
+  }
+  return 0;
 }
 
 function protocolVersion(text) {
@@ -631,15 +728,19 @@ function check(root) {
   const gdir = path.join(root, GUIDES_DIR);
   const files = exists(gdir) ? fs.readdirSync(gdir).filter((x) => x.endsWith('.md')) : [];
   const installedGuides = new Set(files.map((f) => f.replace(/\.md$/, '')));
-  const stale = [];
-  for (const f of files) stale.push(...staleReason(path.join(gdir, f), f.replace(/\.md$/, '')));
-  stale.push(...staleReason(path.join(root, PRINCIPLES), 'principles'));
-
   const available = availableGuides();
   const stacks = detectStacks(root);
+
+  const stale = [];
+  for (const f of files) {
+    const name = f.replace(/\.md$/, '');
+    stale.push(...staleReason(path.join(gdir, f), name));
+    stale.push(...mismatchReason(path.join(gdir, f), name, stacks[name]));
+  }
+  stale.push(...staleReason(path.join(root, PRINCIPLES), 'principles'));
   const missing = Object.entries(stacks)
     .filter(([s]) => available.includes(s) && !installedGuides.has(s))
-    .map(([s, where]) => `${s} (detected in ${where.join(', ')})`);
+    .map(([s, entries]) => `${s} (detected in ${placesOf(entries).join(', ')})`);
 
   if (!exists(path.join(root, PRINCIPLES)))
     add('WARN', 'principles', `${PRINCIPLES} missing — run \`npx flowpad update\``);
@@ -654,6 +755,17 @@ function check(root) {
       'PASS',
       'guides',
       files.length ? `${files.length} guide(s), all reviewed recently` : 'no known stack detected',
+    );
+
+  // 7. is this package itself stale? Everything above compares the repository against
+  //    the copy of the protocol *inside this package*, so a pinned old release reports
+  //    "current" forever. Only the registry knows otherwise.
+  const latest = latestVersion();
+  if (latest && compareVersions(latest, PKG.version) > 0)
+    add(
+      'WARN',
+      'package',
+      `${PKG.name} ${PKG.version} installed, ${latest} available — the protocol here cannot be newer than the package; run \`npx ${PKG.name}@latest update\``,
     );
 
   report(rows);
@@ -832,7 +944,7 @@ function guide(root, sub, names) {
       const word = installed.includes(name) ? 'installed' : where ? 'suggested' : 'available';
       const paint = word === 'installed' ? c.ok : word === 'suggested' ? c.warn : c.dim;
       console.log(
-        `  ${paint(word.padEnd(10))}  ${name}${where ? c.dim(`  (detected in ${where.join(', ')})`) : ''}`,
+        `  ${paint(word.padEnd(10))}  ${name}${where ? c.dim(`  (detected in ${placesOf(where).join(', ')})`) : ''}`,
       );
     }
     const suggest = all.filter((n) => !installed.includes(n) && stacks[n]);

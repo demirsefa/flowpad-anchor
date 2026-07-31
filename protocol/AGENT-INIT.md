@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 6
+version: 7
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -310,13 +310,13 @@ this table.
 | Working branch / fast-forward promotion (§6) | ✅ health check (§12) |
 | This file's version drift (§1) | ✅ installation check |
 | Scaffold integrity — anchor line, contract index, filled-in settings | ✅ installation check |
-| Noticing a newer protocol exists | ✅ installation check, mechanically once wired into the commit gate |
+| Noticing a newer protocol exists | ✅ installation check, mechanically once wired into the commit gate — including when the installed tooling is itself the stale part |
 | Session-opening orientation (§2) | ⚠️ none — intent only |
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
-| Stack guides and `PRINCIPLES.md` — missing or stale | ✅ installation check (detected stack, `last-reviewed` age) |
+| Stack guides and `PRINCIPLES.md` — missing, stale, or written for another major | ✅ installation check (detected stack, `last-reviewed` age, `verified-against` range) |
 | The §10 step 3 reflexes are actually wired | ⚠️ none — intent only |
 | Edits to this read-only file outside §12 | ✅ installation check |
 

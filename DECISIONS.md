@@ -132,6 +132,39 @@ instructions rather than mirrored there. A copy in both places is Failure 1's di
 with no guardian, which is why the tempting middle option — ship a minimal core, keep
 the long form global — was rejected outright.
 
+### `check` asks the registry, because a pinned consumer cannot see past itself
+
+Everything `check` knows about the current protocol comes from the copy inside the
+installed package. A repository pinned to an old release therefore compares old with old
+and is told it is current — and caret ranges are minor-locked below 1.0, so `^0.9.0`
+never picks up `0.10.0` on its own. The failure is silent and self-reinforcing: the more
+faithfully a repository pinned the tool, the longer it stays behind.
+
+The alternatives were worse. Loosening the published range abuses semver to paper over a
+detection gap. Dropping the pin so the hook always fetches `@latest` trades a permanent
+network dependency at every commit for a problem that appears a few times a year.
+
+So the probe asks `npm view`, and every constraint of a commit hook is respected instead
+of ignored: the answer is cached machine-wide for a week (it is not repository-specific),
+the call is capped at two seconds, failures are cached for a day so an offline laptop
+does not pay the timeout on every commit, and every error path is silent. `CI` and
+`FLOWPAD_NO_NETWORK` skip it outright. A missing network must never block a commit.
+
+### `check` will not inspect the agent's own configuration
+
+§9 gained a row for whether the §10 step 3 reflexes were ever wired, marked `⚠️ none`.
+Making it mechanical would mean reading `.claude/settings.json`, a hook registry, or
+whatever the equivalent is per agent — and that was rejected, deliberately, so the row
+stays amber rather than quietly disappearing.
+
+Two reasons. It is outside this tool's scope, which is what we installed and not how you
+work. And absence is not evidence here: someone can satisfy §8 with a wrapper script, a
+shell alias, or their own memory, so a missing settings file would produce a warning that
+is simply wrong — the fastest way to teach people to ignore the check.
+
+The honest position is a debt row that stays visible. §9 is a list that should get
+shorter, not a scoreboard that must read clean.
+
 ### Publishing is a delivery, not a development loop
 
 Twelve releases went out in a single session because publishing was used to propagate

@@ -1,6 +1,6 @@
 {
   "name": "flowpad",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Anchor — a working protocol for building software with AI agents.",
   "license": "MIT",
   "repository": {
@@ -27,7 +27,8 @@
     "flowpad": "bin/flowpad.js"
   },
   "scripts": {
+    "test": "node --test test/cli.test.js",
     "leak-check": "node scripts/leak-check.js",
-    "prepublishOnly": "node scripts/leak-check.js"
+    "prepublishOnly": "npm test && node scripts/leak-check.js"
   }
 }

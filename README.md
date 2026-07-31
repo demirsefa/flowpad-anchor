@@ -62,8 +62,14 @@ npx flowpad guide add react              # install a stack guide
 every project slot is filled in, that the contract index and the files on disk still
 agree in both directions, that a commit gate is actually registered — not merely present
 as a file — and that the repository's own stack has a guide installed and none of them
-have gone stale. It reads every `package.json` in the tree, so a workspace whose root
-carries no manifest is detected from its child repositories.
+have gone stale or were written for a different major. It reads every `package.json` in
+the tree, so a workspace whose root carries no manifest is detected from its child
+repositories.
+
+It also notices when the installed copy of this package is itself behind, which nothing
+inside the repository can see on its own. That probe is cached for a week, capped at two
+seconds, silent on failure, and skipped entirely under `CI` or `FLOWPAD_NO_NETWORK=1` —
+a commit must never wait on the network.
 
 `--wire` is what makes that mechanical rather than remembered: it adds `flowpad check`
 to the pre-commit hook (and, where there is a `package.json`, pins the dependency). A
