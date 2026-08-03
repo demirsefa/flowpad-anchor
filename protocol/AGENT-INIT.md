@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 10
+version: 11
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -533,9 +533,9 @@ question is theirs. Then write the answers in as they arrive, and carry on.
 | How a change reaches production (§6) | `<TODO>` — ask: *How does a change get live from here — or does nothing deploy?* |
 | Health check (§9) | `<TODO>` — ask: *Is there one command that tells you the project is healthy?* |
 | Test command | `<TODO>` — ask: *How do you run the tests?* |
-| Open questions ledger (§4) | `<TODO>` — ask: *Should I write down things I can’t answer, or just ask you and move on?* |
-| Session summary format (§7) | `<TODO>` — ask: *Want a different shape for the “what did we do” summary?* |
-| Agent commands (§10) | `<TODO>` — ask: *Which commands do you type to get me to do things here?* |
+| Open questions ledger (§4) | `<TODO>` — ask: *Shall I keep a file of my questions and your answers, so nothing gets lost between sessions?* |
+| Session summary format (§7) | `default` — filled in; a project wanting another shape replaces this |
+| Agent commands (§10) | `<TODO>` — detected from the agent's own command folder; `none` if there are none |
 | Where wins are recorded (§8) | `<TODO>` — ask: *Do you keep a file of what got shipped?* |
 | Additional project rules | `<TODO>` — ask: *Anything else about this project I should know up front?* |
 

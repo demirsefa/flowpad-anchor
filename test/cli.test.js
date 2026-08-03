@@ -340,3 +340,20 @@ test('an unfilled ledger or command slot is a question, not a failure', () => {
   assert.strictEqual(line(out, 'questions'), '');
   assert.strictEqual(line(out, 'commands'), '');
 });
+
+test('a slot with a default or a detectable answer is never a question', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  fs.mkdirSync(path.join(dir, '.claude/skills/publish'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.claude/commands'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude/commands/doctor.md'), '# doctor\n');
+  run(dir, ['init', '--agent=claude']);
+
+  const body = fs.readFileSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md'), 'utf8');
+  assert.match(body, /\| Session summary format \(§7\) \| `default`/);
+  assert.match(body, /\| Agent commands \(§10\) \| `\/doctor` · `\/publish` \|/);
+
+  // ...and neither shows up in the questions the check tells the agent to ask.
+  const slots = line(run(dir, ['check']).out, 'slots');
+  assert.doesNotMatch(slots, /what did we do/i);
+  assert.doesNotMatch(slots, /commands do you type/i);
+});

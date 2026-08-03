@@ -317,3 +317,21 @@ wording. A question at the bottom of a summary is not a question — the reader 
 reading mode and answers nothing. It goes first, alone, one at a time, marked so the eye
 catches it, and written for someone who has read none of this. An unanswered question and
 an unasked one cost the same.
+
+### A slot with a default, or an answer on disk, is not a question
+
+Three slots shipped as questions; two of them should never have been asked. The session
+summary has a working default, so the only thing an agent gains by asking is the human's
+time. And the commands an agent can be told to run are sitting in the agent's own command
+folder — asking a human to list them from memory produces a shorter, staler list than
+reading the directory would.
+
+That leaves the ledger, whose question was also wrong: *"shall I write things down, or
+just ask you?"* offered a choice the mechanism does not have. The point of the ledger is
+that both happen — write when you notice, ask afterwards — so a question shaped as
+either/or taught the reader the opposite of the rule.
+
+The general form: before a slot becomes a question, it has to fail two tests — is there
+a sane default, and can the repository answer it? Only what survives both is worth
+interrupting someone for. §12 already said "often nothing is left to ask"; these three
+were a reminder that the tool has to keep earning that sentence, not just print it.

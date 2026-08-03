@@ -458,6 +458,31 @@ function detectSlots(root) {
   // branches, and this exact guess was wrong on the first real repository it met.
   // Guessing is worse than leaving it empty (§12).
 
+  // A slot with a working default is not a question. §7 ships one shape for the
+  // session summary; a project that wants another says so, but nobody should be
+  // interrupted to be told a default exists.
+  slots['Session summary format (§7)'] = 'default';
+
+  // Commands the agent can be asked to run are on disk, per agent. Asking a human to
+  // list them hands them a question whose answer is in their own repository — and the
+  // answer they give from memory will be the incomplete one.
+  const commandDirs = [
+    ['.claude/skills', (d) => fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)],
+    ['.claude/commands', (d) => fs.readdirSync(d).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''))],
+  ];
+  const commands = [];
+  for (const [rel, list] of commandDirs) {
+    if (!exists(here(rel))) continue;
+    try {
+      commands.push(...list(here(rel)));
+    } catch {
+      // An unreadable directory is not worth failing an install over; the slot simply
+      // stays a question, which is the safe direction.
+    }
+  }
+  const uniq = [...new Set(commands)].sort();
+  if (uniq.length) slots['Agent commands (§10)'] = uniq.map((n) => `\`/${n}\``).join(' · ');
+
   // Commands: the root's own manifest answers for the whole project when it has one.
   // Otherwise a workspace root carries none while every child repo does, and looking
   // only at the root would report "unknown" for a project that in fact has one command
