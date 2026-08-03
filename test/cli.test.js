@@ -274,3 +274,66 @@ test('context names the guides and the contract index it can see', () => {
   assert.match(out, /dev\/contracts\/README\.md/);
   assert.match(out, /## 0\. Digest/);
 });
+
+// --- §12 declares, `check` verifies -----------------------------------------
+// The line these three defend: an EMPTY slot is only a question for the human, but a
+// FILLED one is a promise, and a promise with nothing behind it is a dead pointer. That
+// is why this is not the agent-configuration audit DECISIONS.md rules out.
+
+const fillSlot = (dir, label, value) => {
+  const file = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
+  const body = fs.readFileSync(file, 'utf8');
+  const next = body.replace(new RegExp(`^\\| ${label}[^|]*\\|[^|]*<TODO>[^|]*\\|$`, 'm'), `| ${label} | ${value} |`);
+  assert.notStrictEqual(next, body, `slot not found: ${label}`);
+  fs.writeFileSync(file, next);
+};
+
+test('check names the unanswered slots instead of counting them', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const { out } = run(dir, ['check']);
+  assert.match(line(out, 'slots'), /WARN/);
+  assert.match(line(out, 'slots'), /Branching model/);
+});
+
+test('a declared open-questions ledger is read; unasked lines warn, none passes', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
+
+  // Declared but absent — a dead pointer, same class as an indexed contract with no file.
+  assert.match(line(run(dir, ['check']).out, 'questions'), /FAIL/);
+
+  const ledger = path.join(dir, 'dev/OPEN-QUESTIONS.md');
+  fs.writeFileSync(ledger, '- [ ] never asked\n- [~] asked, waiting\n- [x] answered: yes\n');
+  const open = line(run(dir, ['check']).out, 'questions');
+  assert.match(open, /WARN/);
+  assert.match(open, /1 question\(s\) written down but never asked/);
+  assert.match(open, /1 awaiting an answer/);
+
+  fs.writeFileSync(ledger, '- [x] answered: yes\n');
+  assert.match(line(run(dir, ['check']).out, 'questions'), /PASS/);
+});
+
+test('a command §12 declares must exist; `none` is a real answer', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  fillSlot(dir, 'Agent commands \\(§10\\)', '`/publish` · `/doctor`');
+
+  const missing = line(run(dir, ['check']).out, 'commands');
+  assert.match(missing, /FAIL/);
+  assert.match(missing, /\/publish/);
+
+  fs.mkdirSync(path.join(dir, '.claude/skills/publish'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.claude/commands'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.claude/commands/doctor.md'), '# doctor\n');
+  assert.match(line(run(dir, ['check']).out, 'commands'), /PASS/);
+});
+
+test('an unfilled ledger or command slot is a question, not a failure', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const { out } = run(dir, ['check']);
+  assert.strictEqual(line(out, 'questions'), '');
+  assert.strictEqual(line(out, 'commands'), '');
+});

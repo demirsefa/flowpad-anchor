@@ -894,13 +894,67 @@ function check(root) {
     }
   }
 
-  // 3. unfilled slots
+  // 3. unfilled slots. Naming them matters: a count sends the agent to open the file
+  //    before it knows whether the question is even relevant to this session (§12 says
+  //    ask only what the session needs).
   const todos = (local.match(/`<TODO>`/g) || []).length;
   // one <TODO> lives in the explanatory sentence above the table, not in a slot
-  const openSlots = (local.match(/^\|[^|]+\|[^|]*<TODO>[^|]*\|$/gm) || []).length;
-  openSlots
-    ? add('WARN', 'slots', `${openSlots} slot(s) in §12 still say <TODO>`)
+  const openNames = [...local.matchAll(/^\| ([^|]+?) \|[^|]*<TODO>[^|]*\|$/gm)].map((m) =>
+    m[1].trim(),
+  );
+  openNames.length
+    ? add('WARN', 'slots', `unanswered in §12: ${openNames.join(' · ')}`)
     : add('PASS', 'slots', `filled (${todos} mention(s) in prose)`);
+
+  // 3b. What §12 *declares* is fair game to verify; what it leaves empty is only a
+  //     question. That line is the whole scope rule here — this is not an audit of the
+  //     agent's own configuration (which stays out, see DECISIONS.md), it is a dead-
+  //     pointer check on a promise the project made, the same shape as the contract index.
+  const slotValue = (label) => {
+    const row = local.match(
+      new RegExp(`^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^|]*\\| ([^|]+) \\|$`, 'm'),
+    );
+    const v = row && row[1].trim();
+    return !v || v.includes('<TODO>') ? null : v.replace(/`/g, '').trim();
+  };
+  const isNone = (v) => /^none$/i.test(v);
+
+  const ledger = slotValue('Open questions ledger');
+  if (ledger && !isNone(ledger)) {
+    const lpath = path.join(root, ledger);
+    if (!exists(lpath)) {
+      add('FAIL', 'questions', `§12 points at ${ledger}, which is not there`);
+    } else {
+      const body = read(lpath);
+      const unasked = (body.match(/^- \[ \]/gm) || []).length;
+      const waiting = (body.match(/^- \[~\]/gm) || []).length;
+      const tail = waiting ? `, ${waiting} awaiting an answer` : '';
+      unasked
+        ? add('WARN', 'questions', `${unasked} question(s) written down but never asked${tail}`)
+        : add('PASS', 'questions', `nothing unasked${tail}`);
+    }
+  }
+
+  const commands = slotValue('Agent commands');
+  if (commands && !isNone(commands)) {
+    // Written as the human types them (`/publish`), resolved per agent. Only Claude's
+    // layout is known here; for anything else a declared command is taken on trust
+    // rather than guessed at and wrongly failed.
+    const named = [...commands.matchAll(/\/([a-z0-9][\w-]*)/gi)].map((m) => m[1]);
+    const home = require('os').homedir();
+    const found = (n) =>
+      [
+        path.join(root, '.claude', 'skills', n),
+        path.join(root, '.claude', 'commands', `${n}.md`),
+        path.join(home, '.claude', 'skills', n),
+        path.join(home, '.claude', 'commands', `${n}.md`),
+      ].some(exists);
+    const missing = named.filter((n) => !found(n));
+    if (!named.length) add('PASS', 'commands', commands);
+    else if (missing.length)
+      add('FAIL', 'commands', `declared in §12 but not installed: ${missing.map((n) => `/${n}`).join(', ')}`);
+    else add('PASS', 'commands', `${named.length} declared, all installed`);
+  }
 
   // 4. contract index — the "anchored" half. Both directions matter: a row with no
   //    file is a dead link, a file with no row is a rule nobody will ever find.

@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 8
+version: 9
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -47,17 +47,21 @@ rest is reference, opened when relevant.*
 4. **A task must stand alone.** An investigation task delivers a report, not code. (§5)
    Any `<TODO>` slot in §12 is a question for the human — never a blank to guess, and
    never asked in this document's vocabulary: assume they have not read it. (§12)
-5. **Branching and release are project settings (§12), not things to infer.** An agent
+5. **Write a question down the moment you notice it, then ask.** Anything you cannot
+   derive goes into the open-questions ledger (§12) as an open line — writing and asking
+   are separate moments, and that is what makes a forgotten question visible. Record the
+   answer itself, not a tick. (§4)
+6. **Branching and release are project settings (§12), not things to infer.** An agent
    never opens a branch on its own, and never ships — it prepares; a human releases. In
    some projects a push is already a deploy. (§6)
-6. **Never bypass the commit gate.** Fix the error the hook found. (§6)
-7. **Report, don't narrate.** State what broke, why, and what changed. (§7)
-8. **End a session on purpose:** loose ends → tasks → commit → verify understanding. (§8)
-9. **Don't claim what you didn't verify.** If a test failed, show it. If a step was
+7. **Never bypass the commit gate.** Fix the error the hook found. (§6)
+8. **Report, don't narrate.** State what broke, why, and what changed. (§7)
+9. **End a session on purpose:** loose ends → tasks → commit → verify understanding. (§8)
+10. **Don't claim what you didn't verify.** If a test failed, show it. If a step was
    skipped, say so. (§7)
-10. **Universal coding principles are not repeated here** — they live in
+11. **Universal coding principles are not repeated here** — they live in
     `PRINCIPLES.md`, installed next to this file. Read it. (§11)
-11. **This file is read-only.** Only the §12 slot values may be filled in; everything
+12. **This file is read-only.** Only the §12 slot values may be filled in; everything
     else you want to write belongs in the project's own instruction file. `update`
     overwrites this file.
 
@@ -179,6 +183,23 @@ tests, run things locally, create files, research, draft.
 not depend on an answer, then ask at the end. Blocking with nothing delivered is correct
 only when proceeding on a wrong assumption would waste the work entirely.
 
+**Write the question down before you ask it.** Any question you cannot answer from the
+code, the contracts, or this protocol goes into the project's open-questions ledger
+(§12) as an open line — *at the moment you notice it*, which is not the moment you ask.
+Keeping the two moments apart is the whole mechanism: an agent that forgets to ask still
+wrote the line, so the unchecked box makes the forgetting visible. Batching (above) then
+happens over a written list rather than over memory.
+
+- Open a line the moment the uncertainty appears, and say what you assumed if you carried
+  on without an answer. Adding it afterwards, once the answer is in, defeats the purpose.
+- When you do ask and get an answer, **write the answer itself into the line**, not a tick.
+  A tick is free to fabricate; an answer is not, and it is what the next session reads.
+- A line whose answer is "no" or "not needed" is *closed*, not deleted — that is what
+  stops the same question being asked again next week.
+
+This does not detect the question you never noticed; nothing can. It detects the one you
+noticed and did not raise, which is the failure that actually recurs.
+
 **Do not spawn other agents** unless asked. The reports flood the context the human is
 trying to follow.
 
@@ -258,6 +279,24 @@ Status (done / not done / partial, and what remains).
 why) · Then either **Proposed fix** (not yet applied — propose, wait) or **Fix**
 (applied — what changed).
 
+**Session summary** — when asked *"what did we do?"*, and at the end of any session that
+produced real work. Four blocks, not a narrative:
+
+| Block | What goes in it |
+|---|---|
+| **What we did** | one line per change |
+| **Why we got here** | the trigger · how it was before · why that was not enough |
+| **What the user will see** | the behavioural difference, or plainly *"invisible — internal"* · and the class: feature / fix / chore / refactor / ops |
+| **What happens next** | next step · ⚠️ exceptions and edge cases · 🔴 what is on the human · one closing question |
+
+Two of these are dropped the most and both cost the next session real time. **"Why we got
+here"** is not recoverable from the diff — a change whose reason is unrecorded gets undone
+by whoever meets it next. **"What the user will see"** is honest about scope: most
+infrastructure work is invisible, and writing that is better than implying a value the
+work does not have.
+
+A project may replace this shape with its own (§12); the default is this one.
+
 **Label findings.** When reporting several at once, mark each one:
 
 - **structural** — touches architecture or a rule; the human should read the full entry.
@@ -316,6 +355,8 @@ this table.
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
+| An open question was written down before it was asked (§4) | ⚠️ partial — the check counts unanswered lines in the declared ledger; whether a question ever reached it is intent |
+| The commands §12 declares actually exist (§10) | ✅ installation check — a declared command with nothing behind it is a dead pointer |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
 | Stack guides and `PRINCIPLES.md` — missing, stale, or written for another major | ✅ installation check (detected stack, `last-reviewed` age, `verified-against` range) |
 | The §10 step 4 reflexes are actually wired | ⚠️ none — intent only |
@@ -470,6 +511,9 @@ Write the answers in as they arrive, and carry on with the session.
 | How a change reaches production (§6) | `<TODO>` — or `none` if nothing deploys from here |
 | Health check (§9) | `<TODO>` |
 | Test command | `<TODO>` |
+| Open questions ledger (§4) | `<TODO>` — a file path, or `none` to keep questions in the session only |
+| Session summary format (§7) | `<TODO>` — `default`, or a project-specific shape |
+| Agent commands (§10) | `<TODO>` — the callable commands installed here, or `none` |
 | Where wins are recorded (§8) | `<TODO>` |
 | Additional project rules | `<TODO>` |
 

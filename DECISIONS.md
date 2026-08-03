@@ -248,3 +248,53 @@ updated, compared, or found. It is the one copy that can never go red.
 What belongs in memory is a pointer — the rules live in the repository, read them, do
 not re-derive them — plus the standing instruction that on any disagreement the file in
 the repository wins.
+
+### A question is written down before it is asked, not after
+
+Batching questions to the end of a session (§4) assumed the agent still remembered them
+at the end. It did not. The rule was in the protocol, an end-of-session hook repeated it,
+and questions were still quietly answered by assumption.
+
+What was missing was not sterner prose but a second moment. The ledger splits *noticing*
+from *asking*: the line is written when the uncertainty appears, and asking is a separate
+act on a written list. An agent that forgets to ask has already left an unchecked box, so
+the omission is visible to both sides — and `check` can count it.
+
+Two details are load-bearing. The line records **the answer itself, not a tick**: a tick
+is free to fabricate and tells the next session nothing, while an answer is evidence and
+is what gets read later. And an answer of *"no"* or *"not needed"* **closes** the line
+rather than deleting it, which is what stops the same question returning next week.
+
+The honest limit, stated in the protocol rather than glossed: this cannot detect a
+question that was never noticed. Nothing can. It detects the noticed-but-unraised one,
+which is the failure that actually recurs.
+
+### `check` verifies what §12 declares, never what a project ought to have
+
+Two slots now name things on disk — the ledger file and the project's agent commands —
+and `check` follows both. That looks like the agent-configuration audit rejected above,
+and the line between them is worth stating because it will be tested again.
+
+Reading `.claude/` to ask *"were the §10 reflexes ever wired?"* stays rejected: absence
+is not evidence, since the same job can be done by an alias, a wrapper, or a human's
+memory, so a missing file would produce a warning that is simply wrong.
+
+A **filled** slot is the opposite case. The project has claimed `/publish` exists; if
+nothing is behind it, that is a dead pointer — the same defect as a contract the index
+lists but no file backs, which has always been a failure. An **empty** slot stays a
+question and produces no row at all.
+
+So: empty asks, filled verifies. The check never invents an expectation the project did
+not state.
+
+### The session summary has a shape, and a project may replace it
+
+§7 prescribed the task and bug reports but left "what did we do?" to improvisation, and
+the two blocks that went missing were always the same: *why we got here* — unrecoverable
+from a diff, so the next session undoes the change — and *what the user will see*, whose
+honest answer for most infrastructure work is "nothing", which is better said than
+implied otherwise.
+
+The default shape lives in the protocol and the deviation lives in §12, not the reverse.
+Putting the whole format in the settings table would let every repository invent its own
+and dissolve the single source this package exists to hold.
