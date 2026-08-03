@@ -60,6 +60,42 @@ const ANCHOR_MARK = `${PROTOCOL_DIR}/AGENT-INIT.md`;
 // that will be.
 const ANCHOR_LINE = `The working protocol for this repository is in \`${ANCHOR_MARK}\` — read it at the start of a session, together with \`${PRINCIPLES}\` (coding principles that hold in every session).`;
 
+// ---- the session channel ---------------------------------------------------
+
+// The anchor line is a *hop*: the agent has to notice it and choose to open the file.
+// A hop that can be skipped is a hop that will be, and no session inherits the last
+// one's reading — every chat starts empty. So where the agent offers a mechanical
+// channel, the protocol is put in front of it instead of being pointed at.
+//
+// §0 is the section written to be memorised; the rest is reference, opened when
+// relevant. It is the only part small enough to repeat every session.
+const DIGEST_FROM = '## 0.';
+const DIGEST_TO = '## 1.';
+// Markers, not a hand-copied excerpt: `update` refreshes what is between them and
+// `check` goes amber when it drifts. An unguarded copy is the disease this package
+// exists to fight; a guarded one is a cache.
+const DIGEST_START = '<!-- flowpad:digest start — tool-managed, edits are overwritten -->';
+const DIGEST_END = '<!-- flowpad:digest end -->';
+
+// What the session hook runs. It reads the *installed* file rather than calling this
+// package back, for three reasons that all point the same way: it costs no network on
+// a channel that fires at every session start, it still works when the package is not
+// installed at all (`npx flowpad init` in a repo with no manifest), and it prints the
+// digest of the protocol actually on disk — a package at a different version would
+// confidently print someone else's.
+//
+// The awk range mirrors DIGEST_FROM/DIGEST_TO above; `check` compares the registered
+// command against this exact string, so the two cannot drift apart unnoticed.
+const sessionCommand = () =>
+  `{ echo "Working protocol — full text: ${PROTOCOL_DIR}/AGENT-INIT.md · coding principles: ${PRINCIPLES}"; ` +
+  `awk '/^${DIGEST_TO.replace('.', '\\.')}/{exit} /^${DIGEST_FROM.replace('.', '\\.')}/{f=1} f' ` +
+  `"\${CLAUDE_PROJECT_DIR:-.}/${PROTOCOL_DIR}/AGENT-INIT.md"; } 2>/dev/null || true`;
+
+// Which agents expose a channel that runs on its own at session start. Everything else
+// gets the digest written into the file it already loads — weaker (a copy on disk), but
+// it is that or nothing, and nothing is how the rule gets skipped.
+const SESSION_HOOK_AGENTS = { claude: '.claude/settings.json' };
+
 // ---- small helpers ---------------------------------------------------------
 
 const c = {
@@ -197,7 +233,12 @@ function diffLines(a, b) {
 const isSlotRow = (line) => /^\|[^|]+\|[^|]*\|$/.test(line);
 
 function frontMatter(text) {
-  const m = text.match(/^---\n([\s\S]*?)\n---/);
+  // Tolerant of a leading BOM or stray indentation before the opening fence. Being
+  // strict here was found to fail the wrong way: two accidental spaces in front of `---`
+  // in a real repository turned off both the staleness and the version-mismatch check
+  // for that guide, and the row degraded to "no last-reviewed date" — which reads as a
+  // guide that was never dated rather than a guard that stopped guarding.
+  const m = text.replace(/^﻿?[ \t]*/, '').match(/^---\n([\s\S]*?)\n---/);
   if (!m) return {};
   return Object.fromEntries(
     m[1]
@@ -206,6 +247,49 @@ function frontMatter(text) {
       .filter((kv) => kv.length >= 2)
       .map((kv) => [kv[0].trim(), kv.slice(1).join(': ').trim()]),
   );
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The §0 section of an installed protocol, or null when the file has no such section
+// (a hand-edited or very old copy). Returning null rather than guessing keeps a wrong
+// digest — the worst outcome here — off the table.
+function digestOf(protocol) {
+  const lines = protocol.split('\n');
+  const from = lines.findIndex((l) => l.startsWith(DIGEST_FROM));
+  if (from < 0) return null;
+  const rest = lines.slice(from + 1);
+  const to = rest.findIndex((l) => l.startsWith(DIGEST_TO));
+  return [lines[from], ...(to < 0 ? rest : rest.slice(0, to))]
+    .join('\n')
+    .replace(/\n*-{3,}\s*$/, '')
+    .trim();
+}
+
+// Writes or refreshes the marked block in an instruction file. Everything outside the
+// markers is the user's and is never touched — that is the whole reason for markers.
+function writeDigestBlock(root, file, digest) {
+  const abs = path.join(root, file);
+  const body = exists(abs) ? read(abs) : '';
+  // The digest speaks about the protocol in the first person ("this file is read-only"),
+  // which is true where it was written and false here. Naming the source is not decoration:
+  // without it the block reads as a rule about the instruction file it was pasted into.
+  const header =
+    `> **The working protocol's §0 digest**, copied from \`${PROTOCOL_FILE}\` — ` +
+    `"this file" below means that one, not this. Full text and the §12 project settings live there.\n`;
+  const block = `${DIGEST_START}\n${header}\n${digest}\n${DIGEST_END}`;
+  if (body.includes(DIGEST_START) && body.includes(DIGEST_END)) {
+    const next = body.replace(
+      new RegExp(`${escapeRe(DIGEST_START)}[\\s\\S]*?${escapeRe(DIGEST_END)}`),
+      () => block, // a function, so `$&` and friends in the digest stay literal
+    );
+    if (next === body) return 'same';
+    fs.writeFileSync(abs, next);
+    return 'refreshed';
+  }
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, `${body}${body && !body.endsWith('\n') ? '\n' : ''}\n${block}\n`);
+  return 'added';
 }
 
 function availableGuides() {
@@ -511,6 +595,72 @@ function wireInto(root, results) {
   results.push([c.ok(body ? 'wired' : 'created'), `${path.relative(root, hook)} → ${cmd}`]);
 }
 
+// Which instruction files this repository actually has, so the digest lands in the file
+// the agent already loads rather than in one we invented for it.
+const instructionFiles = (root, preferred) => {
+  const present = ANCHOR_TARGETS.filter((f) => exists(path.join(root, f)));
+  return present.length ? present : preferred ? [preferred] : [];
+};
+
+// Which agent this repository is set up for, when `--agent` was not passed. Detection
+// only ever picks the channel; it never installs anything on its own (§4).
+function detectAgent(root) {
+  const found = Object.entries(AGENT_FILES).find(([, file]) => exists(path.join(root, file)));
+  return found ? found[0] : null;
+}
+
+// Step 2 of §10, finally mechanical for the one agent that offers the channel. Opt-in
+// like every other write here: `--wire` or the explicit command, never on its own.
+function wireSession(root, agent, results) {
+  const chosen = agent || detectAgent(root);
+  const settingsRel = SESSION_HOOK_AGENTS[chosen];
+
+  if (!settingsRel) {
+    // No session-start channel in this agent. The digest goes into the file it loads
+    // automatically — a copy, but a marked one that `update` refreshes and `check`
+    // ages, which is the difference between a cache and the drift of Failure 2.
+    const protocolPath = path.join(root, PROTOCOL_FILE);
+    const digest = exists(protocolPath) ? digestOf(read(protocolPath)) : null;
+    if (!digest) {
+      results.push([c.warn('skipped'), 'session digest — no §0 section in the installed protocol']);
+      return;
+    }
+    const targets = instructionFiles(root, AGENT_FILES[chosen]);
+    if (!targets.length) {
+      results.push([c.warn('skipped'), 'session digest — no instruction file to write it into']);
+      return;
+    }
+    for (const file of targets) {
+      const what = writeDigestBlock(root, file, digest);
+      results.push([what === 'same' ? c.dim('same') : c.ok(what), `${file} (§0 digest block)`]);
+    }
+    return;
+  }
+
+  const abs = path.join(root, settingsRel);
+  let json = {};
+  if (exists(abs)) {
+    try {
+      json = JSON.parse(read(abs));
+    } catch (err) {
+      // Someone else's configuration file: refuse to rewrite what we cannot parse.
+      results.push([c.warn('skipped'), `${settingsRel} is not valid JSON (${err.message})`]);
+      return;
+    }
+  }
+  json.hooks = json.hooks || {};
+  json.hooks.SessionStart = json.hooks.SessionStart || [];
+  const registered = json.hooks.SessionStart.flatMap((e) => (e && e.hooks) || []);
+  if (registered.some((h) => String((h && h.command) || '').includes('AGENT-INIT.md'))) {
+    results.push([c.dim('same'), `${settingsRel} (SessionStart already wired)`]);
+    return;
+  }
+  json.hooks.SessionStart.push({ hooks: [{ type: 'command', command: sessionCommand() }] });
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, `${JSON.stringify(json, null, 2)}\n`);
+  results.push([c.ok('wired'), `${settingsRel} → the protocol loads at every session start`]);
+}
+
 // Guides are suggested, never installed uninvited (§4) — but a missing one must not be
 // silent either, or it stays missing forever. Interactively this is one keystroke;
 // non-interactively (an agent running init from a shell) it prints the command and
@@ -533,7 +683,32 @@ function offerGuides(root, opts = {}) {
   console.log(`\n${c.warn('Guides:')} ${missing.join(', ')} detected but not installed — ${c.b(cmd)}`);
 }
 
-// §10 step 3: the reflexes that turn "intent only" rows in §9 into something
+// The same shape as offerGuides, for the same reason: a missing thing must not be
+// silent, and a change to somebody's configuration must not happen uninvited. One
+// keystroke interactively; the command printed otherwise.
+//
+// `update` offers it too, not just `init`. An install made before the channel existed
+// would otherwise stay unwired forever unless its owner happened to read a release
+// note — which is the same self-reinforcing silence the registry probe exists to break.
+function offerSession(root, agent, opts = {}) {
+  const protocolPath = path.join(root, PROTOCOL_FILE);
+  if (!exists(protocolPath)) return;
+  // Anything other than INFO means a channel is already there; a stale one is repaired
+  // by `update` itself, not re-offered.
+  if (sessionStatus(root, read(protocolPath))[0] !== 'INFO') return;
+
+  if (opts.wire || ask('\nLoad the protocol at every session start (§10 step 2)?')) {
+    const results = [];
+    wireSession(root, agent, results);
+    for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
+    return;
+  }
+  console.log(
+    `\n${c.warn('Session:')} the protocol is pointed at, not loaded — ${c.b('npx flowpad wire-session')}`,
+  );
+}
+
+// §10 step 4: the reflexes that turn "intent only" rows in §9 into something
 // mechanical. Nothing checks whether they were wired, so the least this tool can do is
 // name them at the moment the agent is looking at its output.
 const REFLEXES = {
@@ -567,7 +742,10 @@ function init(root, force, opts = {}) {
     writeFile(root, file.dest, read(file.src), force, results);
 
   anchorInto(root, results, opts.anchor);
-  if (opts.wire) wireInto(root, results);
+  if (opts.wire) {
+    wireInto(root, results);
+    wireSession(root, opts.agent, results);
+  }
 
   // The lock records the *upstream* bytes, not what is on disk. That is what makes
   // "the user edited this" distinguishable from "upstream moved".
@@ -582,9 +760,10 @@ function init(root, force, opts = {}) {
 
   for (const [tag, file] of results) console.log(`  ${tag}  ${file}`);
   offerGuides(root, opts);
+  offerSession(root, opts.agent, opts);
 
   const reflex = REFLEXES[opts.agent];
-  if (reflex) console.log(`\n${c.dim(`Reflexes (§10 step 3) — ${opts.agent}: ${reflex}`)}`);
+  if (reflex) console.log(`\n${c.dim(`Reflexes (§10 step 4) — ${opts.agent}: ${reflex}`)}`);
 
   const todos = (installed.match(/^\|[^|]+\|[^|]*<TODO>[^|]*\|$/gm) || []).length;
   console.log(
@@ -595,6 +774,54 @@ function init(root, force, opts = {}) {
 }
 
 // ---- check -----------------------------------------------------------------
+
+// How (or whether) the protocol reaches a session without the agent choosing to open a
+// file. Returns a row, never throws — a malformed settings file is the user's business,
+// not a reason for the check to fall over.
+//
+// This deliberately inspects only what *this tool installs*, never how the human works.
+// "No hook here" is not evidence that a session is unguarded: someone may load the
+// protocol through a wrapper, an alias, or their own memory. Hence INFO, not WARN.
+function sessionStatus(root, protocol) {
+  for (const [agent, rel] of Object.entries(SESSION_HOOK_AGENTS)) {
+    const abs = path.join(root, rel);
+    if (!exists(abs)) continue;
+    let json;
+    try {
+      json = JSON.parse(read(abs));
+    } catch {
+      continue;
+    }
+    const registered = ((json.hooks || {}).SessionStart || []).flatMap((e) => (e && e.hooks) || []);
+    const hit = registered.find((h) => String((h && h.command) || '').includes('AGENT-INIT.md'));
+    if (!hit) continue;
+    // A command that no longer matches what this version writes still counts as wired —
+    // the user is allowed to adapt it — but the drift is worth naming, because the awk
+    // range and the protocol's section numbering have to agree for it to print anything.
+    return hit.command === sessionCommand()
+      ? ['PASS', 'session', `${agent}: SessionStart hook — the protocol loads every session`]
+      : ['WARN', 'session', `${agent}: SessionStart hook is wired but was edited — verify it still prints §0`];
+  }
+
+  const digest = digestOf(protocol);
+  const carriers = ANCHOR_TARGETS.filter(
+    (f) => exists(path.join(root, f)) && read(path.join(root, f)).includes(DIGEST_START),
+  );
+  if (carriers.length) {
+    const stale = digest
+      ? carriers.filter((f) => !read(path.join(root, f)).includes(digest))
+      : [];
+    return stale.length
+      ? ['WARN', 'session', `§0 digest block in ${stale.join(', ')} no longer matches the protocol — run \`npx flowpad update\``]
+      : ['PASS', 'session', `§0 digest block in ${carriers.join(', ')}, current`];
+  }
+
+  return [
+    'INFO',
+    'session',
+    'the protocol is pointed at, not loaded — `npx flowpad wire-session` puts §0 in front of every session',
+  ];
+}
 
 function check(root) {
   const rows = [];
@@ -631,7 +858,7 @@ function check(root) {
   else if (!exists(path.join(root, PROTOCOL_DIR, BASE)))
     add('WARN', 'baseline', `${BASE} missing — \`update\` cannot show what it would drop`);
   else if (localV !== upstreamV)
-    add('WARN', 'version', `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\``);
+    add('WARN', 'version', `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\`, then re-read it`);
   else if (
     lock.files &&
     lock.files[PROTOCOL_FILE] &&
@@ -641,7 +868,7 @@ function check(root) {
     // The declared version is hand-maintained and was, in practice, forgotten while
     // the body changed across several releases. The recorded upstream hash cannot be
     // forgotten, so drift is detected from it and the version is only a label.
-    add('WARN', 'version', `v${localV} body has moved on upstream — run \`npx flowpad update\``);
+    add('WARN', 'version', `v${localV} body has moved on upstream — run \`npx flowpad update\`, then re-read it`);
   } else {
     const entry = (lock.files || {})[PROTOCOL_FILE];
     const installedSha = entry && (entry.installed || entry);
@@ -757,7 +984,14 @@ function check(root) {
       files.length ? `${files.length} guide(s), all reviewed recently` : 'no known stack detected',
     );
 
-  // 7. is this package itself stale? Everything above compares the repository against
+  // 7. the session channel — is the protocol loaded, or only pointed at? Absence is
+  //    reported at INFO, not WARN: wiring is opt-in, and a repository that declined it
+  //    is correctly set up, not incomplete. A *stale* digest block is different — that
+  //    is a copy disagreeing with its source, which is the failure this package is for.
+  const session = sessionStatus(root, local);
+  if (session) add(...session);
+
+  // 8. is this package itself stale? Everything above compares the repository against
   //    the copy of the protocol *inside this package*, so a pinned old release reports
   //    "current" forever. Only the registry knows otherwise.
   const latest = latestVersion();
@@ -775,7 +1009,17 @@ function check(root) {
 function report(rows) {
   const width = Math.max(...rows.map(([, name]) => name.length));
   for (const [level, name, detail] of rows) {
-    const tag = level === 'PASS' ? c.ok('PASS') : level === 'WARN' ? c.warn('WARN') : c.bad('FAIL');
+    // INFO is dim and counts towards nothing: it reports something optional that is not
+    // installed. Levels that colour a summary have to mean "act on this", or the amber
+    // rows that do get skimmed past.
+    const tag =
+      level === 'PASS'
+        ? c.ok('PASS')
+        : level === 'WARN'
+          ? c.warn('WARN')
+          : level === 'INFO'
+            ? c.dim('INFO')
+            : c.bad('FAIL');
     console.log(`  ${tag}  ${name.padEnd(width)}  ${c.dim(detail)}`);
   }
   const fails = rows.filter(([l]) => l === 'FAIL').length;
@@ -797,6 +1041,7 @@ function report(rows) {
 // `update`'s slot-merge path, which does not apply to them. Runs before that path's
 // early returns, so a release that only touches a sidecar still lands.
 function syncSidecars(root, force, lock) {
+  const changed = [];
   for (const file of MANAGED.slice(1)) {
     const abs = path.join(root, file.dest);
     const upstream = read(file.src);
@@ -804,6 +1049,7 @@ function syncSidecars(root, force, lock) {
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(abs, upstream);
       console.log(`  ${c.ok('installed')}  ${file.dest}`);
+      changed.push(file.dest);
       continue;
     }
     const local = read(abs);
@@ -819,6 +1065,25 @@ function syncSidecars(root, force, lock) {
     }
     fs.writeFileSync(abs, upstream);
     console.log(`  ${c.ok('updated')}  ${file.dest}`);
+    changed.push(file.dest);
+  }
+  return changed;
+}
+
+// Re-stamp the §0 block in any instruction file that already carries one. Only ever
+// refreshes an existing block — a repository that never opted in does not grow one
+// because it ran `update`. This is what makes the copy safe to have at all: it cannot
+// be the version that gets forgotten, because nobody maintains it by hand.
+function refreshDigestBlocks(root) {
+  const protocolPath = path.join(root, PROTOCOL_FILE);
+  if (!exists(protocolPath)) return;
+  const digest = digestOf(read(protocolPath));
+  if (!digest) return;
+  for (const file of ANCHOR_TARGETS) {
+    const abs = path.join(root, file);
+    if (!exists(abs) || !read(abs).includes(DIGEST_START)) continue;
+    if (writeDigestBlock(root, file, digest) === 'refreshed')
+      console.log(`  ${c.ok('refreshed')}  ${file} (§0 digest block)`);
   }
 }
 
@@ -839,7 +1104,15 @@ function lockRecord(root) {
   };
 }
 
+// `update` is the command people actually run, so it is where a new channel has to be
+// offered — bringing an install current means the whole install, not just the bytes.
 function update(root, force) {
+  const code = updateProtocol(root, force);
+  if (code === 0) offerSession(root, detectAgent(root));
+  return code;
+}
+
+function updateProtocol(root, force) {
   const installedPath = path.join(root, PROTOCOL_DIR, 'AGENT-INIT.md');
   if (!exists(installedPath)) {
     console.log(c.bad('Not installed here.'), 'Run `npx flowpad init` first.');
@@ -852,10 +1125,15 @@ function update(root, force) {
   const entry = lock && lock.files && lock.files[PROTOCOL_FILE];
   const pristine = entry && (entry.installed || entry);
 
-  syncSidecars(root, force, lock);
+  // A release that only moves a sidecar still changed what this session is working
+  // from, so it gets the same re-read notice as the protocol itself.
+  const changedSidecars = syncSidecars(root, force, lock);
+  if (changedSidecars.length)
+    console.log(c.warn('  Re-read'), `${changedSidecars.join(', ')} — it changed just now.`);
 
   if (local === upstream) {
     fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
+    refreshDigestBlocks(root);
     console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
     return 0;
   }
@@ -883,6 +1161,7 @@ function update(root, force) {
       console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
     }
     fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
+    refreshDigestBlocks(root);
     return 0;
   }
 
@@ -923,7 +1202,16 @@ function update(root, force) {
   fs.writeFileSync(installedPath, merged);
   fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
   fs.writeFileSync(path.join(root, PROTOCOL_DIR, BASE), upstream);
+  refreshDigestBlocks(root);
   console.log(c.ok('Updated.'), `v${protocolVersion(upstream)} — ${Object.keys(slots).length} slot(s) preserved.`);
+  // Whoever ran this is usually an agent mid-session, holding the version that was on
+  // disk when the session opened. The session channel only fires at session start, so
+  // without this line the rest of the session runs on the protocol that was just
+  // replaced — and would never know it.
+  console.log(
+    c.warn('  Re-read'),
+    `${PROTOCOL_FILE} before continuing — this session is holding the old one.`,
+  );
   return 0;
 }
 
@@ -978,6 +1266,33 @@ function guide(root, sub, names) {
   return 0;
 }
 
+// ---- context ---------------------------------------------------------------
+
+// The session brief, on stdout: §0 plus where to find the rest. Written to be piped
+// into an agent's context by whatever channel it has — the Claude hook, another agent's
+// equivalent, or a human pasting it.
+//
+// Silent and zero-exit when nothing is installed. This runs at session start, and a
+// tool that prints an error there trains people to remove it.
+function context(root) {
+  const protocolPath = path.join(root, PROTOCOL_FILE);
+  if (!exists(protocolPath)) return 0;
+  const digest = digestOf(read(protocolPath));
+  if (!digest) return 0;
+
+  const gdir = path.join(root, GUIDES_DIR);
+  const guides = exists(gdir) ? fs.readdirSync(gdir).filter((f) => f.endsWith('.md')) : [];
+  const pointers = [`full text: ${PROTOCOL_FILE}`, `coding principles: ${PRINCIPLES}`];
+  if (exists(path.join(root, CONTRACTS_DIR, 'README.md')))
+    pointers.push(`contract index: ${CONTRACTS_DIR}/README.md`);
+  if (guides.length)
+    pointers.push(`stack guides: ${guides.map((f) => `${GUIDES_DIR}/${f}`).join(', ')}`);
+
+  console.log(`Working protocol for this repository — ${pointers.join(' · ')}`);
+  console.log(`\n${digest}`);
+  return 0;
+}
+
 // ---- entry -----------------------------------------------------------------
 
 function help() {
@@ -989,11 +1304,13 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
   ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
                        ${c.dim('add <name>')} to install one
+  ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
+  ${c.b('npx flowpad context')}       print the session brief ${c.dim('(§0 + where the rest lives)')}
 
   ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
                    file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
-  ${c.dim('--wire')}           also wire \`flowpad check\` into the commit gate, so drift
-                   goes red mechanically instead of relying on memory
+  ${c.dim('--wire')}           also wire \`flowpad check\` into the commit gate and the
+                   protocol into the session start, so both run without being remembered
   ${c.dim('--guides')}         install the guides for the stacks detected here without asking
   ${c.dim('--force')}          skip the overwrite prompt
 `);
@@ -1026,6 +1343,15 @@ switch (cmd) {
   case 'guide':
     process.exit(guide(root, rest[0], rest.slice(1)));
     break;
+  case 'context':
+    process.exit(context(root));
+    break;
+  case 'wire-session': {
+    const results = [];
+    wireSession(root, agentName, results);
+    for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
+    break;
+  }
   case undefined:
   case 'help':
     help();

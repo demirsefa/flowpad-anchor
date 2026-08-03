@@ -45,7 +45,7 @@ function run(dir, args, opts = {}) {
 }
 
 const line = (out, name) =>
-  out.split('\n').find((l) => new RegExp(`^\\s+(PASS|WARN|FAIL)\\s+${name}\\b`).test(l)) || '';
+  out.split('\n').find((l) => new RegExp(`^\\s+(PASS|WARN|FAIL|INFO)\\s+${name}\\b`).test(l)) || '';
 
 test('detects a stack from child repositories when the root has no manifest', () => {
   const dir = repo({
@@ -147,4 +147,130 @@ test('the registry probe is skipped when the network is opted out', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
   assert.strictEqual(line(run(dir, ['check']).out, 'package'), '');
+});
+
+test('stray indentation before the frontmatter does not disable a guide check', () => {
+  // Found in a real repository: two spaces in front of `---` silently turned off both
+  // the staleness and the version-mismatch check, and the row read "no last-reviewed
+  // date" — a guard that stopped guarding, reported as a guide nobody had dated.
+  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^30.0.0' } } });
+  run(dir, ['init', '--agent=claude', '--guides']);
+  const guide = path.join(dir, 'dev/flowpad/guides/react.md');
+  fs.writeFileSync(guide, `  ${fs.readFileSync(guide, 'utf8')}`);
+  assert.match(line(run(dir, ['check']).out, 'guides'), /verified against 18-19.*uses 30/);
+});
+
+test('the registered session hook actually prints the digest when run', () => {
+  // The one test that cannot be replaced by asserting on our own output: the hook is a
+  // shell string handed to somebody else's runner. A wrong awk range or a quoting slip
+  // fails silently at session start — printing nothing looks exactly like working.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude', '--wire']);
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'));
+  const [{ command }] = settings.hooks.SessionStart[0].hooks;
+  const out = execFileSync('sh', ['-c', command], { cwd: dir, encoding: 'utf8' });
+  assert.match(out, /## 0\. Digest/);
+  assert.match(out, /A rule is anchored \+ enforced/);
+  // The range must stop at §1, or every session pays for the whole document.
+  assert.doesNotMatch(out, /## 1\. Why this exists/);
+});
+
+test('wiring keeps the settings a repository already had', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, '.claude/settings.json'),
+    JSON.stringify({ permissions: { deny: ['Bash(git stash:*)'] } }),
+  );
+  run(dir, ['wire-session', '--agent=claude']);
+  const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'));
+  assert.deepStrictEqual(settings.permissions.deny, ['Bash(git stash:*)']);
+  assert.strictEqual(settings.hooks.SessionStart.length, 1);
+  // Wiring twice must not stack a second copy of the same hook.
+  run(dir, ['wire-session', '--agent=claude']);
+  const again = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'));
+  assert.strictEqual(again.hooks.SessionStart.length, 1);
+});
+
+test('an agent with no session channel gets a marked digest block instead', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=cursor', '--wire']);
+  const rules = fs.readFileSync(path.join(dir, '.cursorrules'), 'utf8');
+  assert.match(rules, /flowpad:digest start/);
+  assert.match(rules, /## 0\. Digest/);
+  // The digest says "this file is read-only" about the protocol, not about its host.
+  assert.match(rules, /"this file" below means that one/);
+  assert.match(line(run(dir, ['check']).out, 'session'), /PASS/);
+});
+
+test('a digest block that drifts from the protocol goes amber, and update repairs it', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=cursor', '--wire']);
+  const rules = path.join(dir, '.cursorrules');
+  fs.writeFileSync(rules, fs.readFileSync(rules, 'utf8').replace('## 0. Digest', '## 0. Stale'));
+  assert.match(line(run(dir, ['check']).out, 'session'), /WARN/);
+  run(dir, ['update']);
+  assert.match(line(run(dir, ['check']).out, 'session'), /PASS/);
+});
+
+test('update never grows a digest block in a repository that declined one', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  run(dir, ['update']);
+  assert.doesNotMatch(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /flowpad:digest/);
+});
+
+test('update tells the reader to re-read what it just replaced', () => {
+  // The session channel fires at session start only. An agent that updates mid-session
+  // is holding the version from when the session opened, and nothing else would say so.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  fs.rmSync(path.join(dir, 'dev/flowpad/PRINCIPLES.md'));
+  assert.match(run(dir, ['update']).out, /Re-read.*PRINCIPLES\.md/);
+  // Nothing changed this time, so there is nothing to re-read.
+  assert.doesNotMatch(run(dir, ['update']).out, /Re-read/);
+});
+
+test('update offers the session channel, and prints the command when it cannot ask', () => {
+  // An install made before the channel existed would otherwise stay unwired forever.
+  // Non-interactive stdin must mean "offer, do not act" — never a silent config edit.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const { out } = run(dir, ['update'], { mustPass: true });
+  assert.match(out, /wire-session/);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.json')));
+});
+
+test('update stops offering once the channel is wired', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude', '--wire']);
+  assert.doesNotMatch(run(dir, ['update'], { mustPass: true }).out, /wire-session/);
+});
+
+test('an unwired session channel is reported, but is not a warning', () => {
+  // Opting out is a complete setup, not an incomplete one — so this row must not colour
+  // the summary. It still has to appear: silence is how "not installed" became invisible.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const { out } = run(dir, ['check']);
+  assert.match(line(out, 'session'), /INFO/);
+  assert.match(out, /wire-session/);
+});
+
+test('context is silent and succeeds where nothing is installed', () => {
+  // It runs at session start; a tool that prints an error there gets removed.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const { code, out } = run(dir, ['context'], { mustPass: true });
+  assert.strictEqual(code, 0);
+  assert.strictEqual(out.trim(), '');
+});
+
+test('context names the guides and the contract index it can see', () => {
+  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^19.0.0' } } });
+  run(dir, ['init', '--agent=claude', '--guides']);
+  const { out } = run(dir, ['context'], { mustPass: true });
+  assert.match(out, /dev\/flowpad\/guides\/react\.md/);
+  assert.match(out, /dev\/contracts\/README\.md/);
+  assert.match(out, /## 0\. Digest/);
 });

@@ -52,10 +52,12 @@ Prose convinces. Only the test binds. This protocol is the practice of keeping b
 ## The CLI
 
 ```
-npx flowpad init --agent=claude --wire   # install, anchor, and wire the commit gate
+npx flowpad init --agent=claude --wire   # install, anchor, and wire both gates
 npx flowpad check                        # verify; exits non-zero when something is off
 npx flowpad update                       # take a newer protocol, keeping your §12 slots
 npx flowpad guide add react              # install a stack guide
+npx flowpad wire-session                 # make the protocol load at every session start
+npx flowpad context                      # print the session brief on stdout
 ```
 
 `check` is the part that matters. It verifies that the anchor line is still there, that
@@ -76,6 +78,38 @@ to the pre-commit hook (and, where there is a `package.json`, pins the dependenc
 protocol that only describes good behaviour decays; one that exits non-zero at commit
 time does not. It is opt-in — editing someone's commit hook uninvited is exactly the
 behaviour the protocol tells agents not to have.
+
+## Pointing at the protocol is not loading it
+
+The anchor line is a hop: the agent has to notice it and choose to open the file. A hop
+that can be skipped is a hop that will be — and no session inherits the last one's
+reading, because every session starts empty.
+
+So `--wire` also installs a **session channel**, using whatever the agent offers:
+
+| Agent | Channel |
+|---|---|
+| Claude Code | a `SessionStart` hook in `.claude/settings.json`, printing §0 at every session start |
+| Codex / Cursor / Gemini / other | §0 copied into the instruction file, between tool-managed markers |
+
+The hook reads the installed file rather than calling this package back: no network on
+a path that runs at every session start, works where the package was never installed,
+and it prints the digest of the protocol *actually on disk* instead of whatever version
+the tool happens to be. Because it lives in `.claude/settings.json`, it travels with the
+repository — anyone who clones it gets the same behaviour without setting anything up.
+
+The copied block is the weaker option — it is a second copy, which is Failure 2 above —
+so it is fenced: `update` re-stamps it, and `check` goes amber when it stops matching
+its source. A copy with a guardian is a cache; without one it is drift.
+
+`update` offers the channel to an install that predates it — one keystroke, or the
+command printed when there is no terminal to ask in. An install that never hears about
+a new channel stays unwired forever, which is the same self-reinforcing silence the
+registry probe exists to break.
+
+Not wiring it is a legitimate choice, so `check` reports its absence at `INFO` and does
+not colour the summary. Levels that colour a summary have to mean *act on this*, or the
+amber rows that do get skimmed past.
 
 ## Honesty
 

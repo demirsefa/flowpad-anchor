@@ -152,7 +152,7 @@ does not pay the timeout on every commit, and every error path is silent. `CI` a
 
 ### `check` will not inspect the agent's own configuration
 
-§9 gained a row for whether the §10 step 3 reflexes were ever wired, marked `⚠️ none`.
+§9 gained a row for whether the §10 step 4 reflexes were ever wired, marked `⚠️ none`.
 Making it mechanical would mean reading `.claude/settings.json`, a hook registry, or
 whatever the equivalent is per agent — and that was rejected, deliberately, so the row
 stays amber rather than quietly disappearing.
@@ -171,3 +171,80 @@ Twelve releases went out in a single session because publishing was used to prop
 changes to consumers. Local execution does that during development; publishing happens
 once the work has settled. Version numbers are permanent, and rapid releases caused
 real confusion through npx caching.
+
+### A guide's `verified-against` range is compared with the version in use
+
+*Recorded late: this shipped alongside the registry probe and was the one decision of
+that release nobody wrote down, which is how it came back as "did we decide this?" a
+day later.*
+
+A guide carries `last-reviewed`, but a date cannot see a major-version jump. A guide
+reviewed against React 18, applied to a React 30 codebase, is as confidently wrong as a
+stale one and looks perfectly fresh. So each guide declares what it was verified against
+and the check compares that with the major actually in `package.json`.
+
+Deliberately crude, because the alternative is crying wolf: an unparsable range produces
+silence rather than a guess, only installed guides are compared, and the result is amber,
+never red. It reads the *guide's own claim*, not the stack — this is not a version
+policy, and the tool has no opinion on which TypeScript you should be running.
+
+### Guides carry judgement; enforcement belongs to the repository being built
+
+The recurring temptation is to let the CLI grade practice — "you are not using this
+pattern", "that rule is violated here". Rejected, because it collapses two boundaries
+this package depends on.
+
+Scope: `check` verifies **integrity** — is the protocol installed, current, anchored,
+indexed, and does each document's own claim still match the repository. It does not
+verify **practice**. Practice is what lint, types, and tests already do, and a second
+opinionated tool drifts from the first — Failure 2 with extra steps.
+
+Portability: the moment the CLI knows what good React looks like, it needs to know what
+good C++, Elixir, and whatever-comes-next look like, and it becomes a bad lint engine
+instead of a protocol installer. Someone arriving with an unknown stack gets the whole
+core today — the check simply reports no known stack and says nothing further. That
+silence is the feature.
+
+So a mechanisable rule graduates *out* of the guide and into the repository's own
+tooling, where it is versioned with the code it governs. What stays in the guide is what
+cannot be mechanised: the judgement, the trap, the reason.
+
+### Pointing at the protocol is not loading it
+
+The anchor line is a hop, and a hop that can be skipped is a hop that will be. Worse, it
+is skippable *again every session*, because no session inherits the last one's reading.
+
+The obvious fix — paste the protocol into `CLAUDE.md`, which loads automatically — was
+rejected: it is one copy per agent file (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`,
+`GEMINI.md`) times one per repository, hand-maintained, with nothing comparing them.
+That is Failure 2 exactly.
+
+What ships instead is a channel per agent. Claude Code gets a `SessionStart` hook, which
+is not a copy at all: it prints §0 from the installed file at session start, and because
+it lives in the repository's `.claude/settings.json` it travels to everyone who clones.
+The hook reads the file rather than calling this package back — no network on a path
+that runs at every session start, it works where the package was never installed, and it
+prints the digest of the protocol *actually on disk* rather than one from whatever
+version of the tool is resolved. Agents with no such channel get §0 copied between
+markers, which `update` re-stamps and `check` ages against its source: a copy with a
+guardian is a cache, without one it is drift.
+
+`update` offers the channel rather than only `init`, because `update` is the command
+people actually run: bringing an install current has to mean the whole install, not just
+its bytes. It asks; it never wires on its own, and with no terminal to ask in it prints
+the command and changes nothing.
+
+Absence is reported at `INFO`, not amber. Declining the channel is a complete setup, and
+a level that colours the summary has to mean *act on this* or the amber rows that do get
+skimmed past.
+
+### An agent's memory gets a pointer, never the rules
+
+Agents with persistent memory invite writing the protocol into it. Rejected for the same
+reason as everything above, with one aggravating factor: memory is per-agent,
+per-machine, unversioned, and invisible to `check`, so a rule that lands there cannot be
+updated, compared, or found. It is the one copy that can never go red.
+
+What belongs in memory is a pointer — the rules live in the repository, read them, do
+not re-derive them — plus the standing instruction that on any disagreement the file in
+the repository wins.

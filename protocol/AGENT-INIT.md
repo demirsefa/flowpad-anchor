@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 7
+version: 8
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -311,13 +311,14 @@ this table.
 | This file's version drift (§1) | ✅ installation check |
 | Scaffold integrity — anchor line, contract index, filled-in settings | ✅ installation check |
 | Noticing a newer protocol exists | ✅ installation check, mechanically once wired into the commit gate — including when the installed tooling is itself the stale part |
-| Session-opening orientation (§2) | ⚠️ none — intent only |
+| The protocol reaches a session at all (§10) | ✅ installation check — a session hook, or a digest block checked against its source |
+| Session-opening orientation (§2) | ⚠️ partial — §10 step 2 puts §0 in front of the agent; acting on it is still intent |
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
 | Stack guides and `PRINCIPLES.md` — missing, stale, or written for another major | ✅ installation check (detected stack, `last-reviewed` age, `verified-against` range) |
-| The §10 step 3 reflexes are actually wired | ⚠️ none — intent only |
+| The §10 step 4 reflexes are actually wired | ⚠️ none — intent only |
 | Edits to this read-only file outside §12 | ✅ installation check |
 
 The "intent only" rows erode over a long session. The fix is not to make this document
@@ -347,12 +348,32 @@ automatically:
 | Gemini | `GEMINI.md` |
 | An agent with persistent memory | write §0 Digest into memory, plus a pointer to this file |
 
-**Step 2 — keep the anchor clean.** The instruction file should hold only
+**Step 2 — make it load itself.** The anchor is a *hop*: the agent has to notice the
+line and choose to open the file. A hop that can be skipped is a hop that will be — and
+no session inherits the last one's reading, because every session starts empty. Where
+the agent offers a mechanical channel, put the protocol in front of it instead:
+
+| Agent | Channel | What is installed |
+|---|---|---|
+| Claude Code | a `SessionStart` hook in `.claude/settings.json` | a command that prints §0 from the installed file at every session start |
+| Codex / Cursor / Gemini / other | none available | §0 is copied into the instruction file, between markers |
+
+Both are installed by `npx flowpad wire-session` (or `init --wire`), and `update` offers
+the channel to an install that predates it — asking once rather than editing anything on
+its own, opt-in like every other write here. The hook reads the file on disk rather than calling the package, so
+it costs no network, works where the package is not installed, and prints the digest of
+the protocol *actually installed* rather than whatever version the tool happens to be.
+
+The copied block is the weaker of the two — it is a second copy, which is Failure 2 —
+so it is fenced: `update` re-stamps it and the installation check goes amber when it no
+longer matches its source. A copy with a guardian is a cache; without one it is drift.
+
+**Step 3 — keep the anchor clean.** The instruction file should hold only
 project-specific things: architecture warnings, local commands, deployment specifics.
 Do not copy protocol rules into it. Copy them and you have two sources; two sources
 drift. One question, one answer: protocol → this file; project → the instruction file.
 
-**Step 3 — reflexes.** Several "intent only" rows in §9 become mechanical if the agent
+**Step 4 — reflexes.** Several "intent only" rows in §9 become mechanical if the agent
 supports them. **An agent reading this should offer to wire them, not wait to be asked** —
 and then stop at the offer, because these are edits to the human's own configuration (§4).
 Nothing checks whether they exist, which is exactly why the offer has to be made out loud.
@@ -364,7 +385,7 @@ Nothing checks whether they exist, which is exactly why the offer has to be made
 
 Without them the protocol still works — it just runs on judgement instead of reflex.
 
-**Step 4 — scaffolding.** Installation writes `contracts/` (index + template) if it is
+**Step 5 — scaffolding.** Installation writes `contracts/` (index + template) if it is
 missing, and never touches it if it already exists. It also installs `PRINCIPLES.md`
 (§11) next to this file. Then fill in §12.
 
