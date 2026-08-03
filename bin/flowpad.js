@@ -928,9 +928,14 @@ function check(root) {
   //    handed a label composes its own question out of it and ends up quoting the
   //    protocol at someone who has never read it — which §12 forbids and which happened
   //    anyway, because nothing put the human-language wording in front of the agent.
-  const openSlots = [...local.matchAll(/^\| ([^|]+?) \|[^|]*<TODO>[^|]*?(?:— ask: \*([^*]+)\*)?\s*\|$/gm)].map(
-    (m) => (m[2] || m[1]).trim(),
-  );
+  // Take the whole cell first, then look for the wording inside it. Matching the row and
+  // the wording in one expression put an optional group next to a lazy one, and the
+  // engine simply skipped the wording — every question silently came out as its label,
+  // which is the leak this mechanism exists to prevent.
+  const openSlots = [...local.matchAll(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm)].map((m) => {
+    const asked = m[2].match(/— ask: \*([^*]+)\*/);
+    return (asked ? asked[1] : m[1]).trim();
+  });
   openSlots.length
     ? add('WARN', 'slots', `ask: ${openSlots.map((q) => `"${q}"`).join(' · ')}`)
     : add('PASS', 'slots', `filled (${todos} mention(s) in prose)`);

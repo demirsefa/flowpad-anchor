@@ -535,7 +535,7 @@ question is theirs. Then write the answers in as they arrive, and carry on.
 | Test command | `<TODO>` — ask: *How do you run the tests?* |
 | Open questions ledger (§4) | `<TODO>` — ask: *Shall I keep a file of my questions and your answers, so nothing gets lost between sessions?* |
 | Session summary format (§7) | `default` — filled in; a project wanting another shape replaces this |
-| Agent commands (§10) | `<TODO>` — detected from the agent's own command folder; `none` if there are none |
+| Agent commands (§10) | `<TODO>` — ask: *Are there commands you type to get me to do things here?* (detected from the agent's command folder when there are any) |
 | Where wins are recorded (§8) | `<TODO>` — ask: *Do you keep a file of what got shipped?* |
 | Additional project rules | `<TODO>` — ask: *Anything else about this project I should know up front?* |
 

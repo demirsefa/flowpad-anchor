@@ -357,3 +357,15 @@ test('a slot with a default or a detectable answer is never a question', () => {
   assert.doesNotMatch(slots, /what did we do/i);
   assert.doesNotMatch(slots, /commands do you type/i);
 });
+
+test('every unanswered slot yields a question, even one that is normally detected', () => {
+  // A detected slot still falls back to being a question when detection finds nothing,
+  // and that fallback is where the tool's own vocabulary leaked into what an agent was
+  // told to ask — the exact defect this wording exists to prevent.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  // Only the message, not the row's own name — "slots" is the check's label for it.
+  const asked = line(run(dir, ['check']).out, 'slots').replace(/^\s*WARN\s+slots\s+/, '');
+  assert.doesNotMatch(asked, /§\d/, `a section reference leaked into: ${asked}`);
+  assert.doesNotMatch(asked, /\bslot\b/i, `this tool's vocabulary leaked into: ${asked}`);
+});
