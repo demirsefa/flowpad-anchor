@@ -298,3 +298,22 @@ implied otherwise.
 The default shape lives in the protocol and the deviation lives in §12, not the reverse.
 Putting the whole format in the settings table would let every repository invent its own
 and dissolve the single source this package exists to hold.
+
+### Asking badly is not asking, so the wording ships with the slot
+
+A session ran `update`, saw three fresh `<TODO>` rows, and produced a report: section
+numbers, the word "slot" six times, a three-column table of recommendations, and three
+questions at the bottom. The human answered *"ee??"* — and the agent then filled the
+slots in by guessing, which §12 forbids in its first paragraph.
+
+Every rule needed to prevent that was already written, and two of them were in the
+digest. What was missing was not a rule but the wording: an agent holding a slot *label*
+composes a question out of the label, and the label is this tool's vocabulary. So each
+row now carries the question in the human's words, `check` prints the question rather
+than the label, and the protocol says to ask it as written.
+
+§4 gained the shape of a question, too, because the failure was as much delivery as
+wording. A question at the bottom of a summary is not a question — the reader is in
+reading mode and answers nothing. It goes first, alone, one at a time, marked so the eye
+catches it, and written for someone who has read none of this. An unanswered question and
+an unasked one cost the same.

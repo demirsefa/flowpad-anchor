@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 9
+version: 10
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -182,6 +182,26 @@ tests, run things locally, create files, research, draft.
 **Batch the questions.** Do not seek approval at every step. Finish everything that does
 not depend on an answer, then ask at the end. Blocking with nothing delivered is correct
 only when proceeding on a wrong assumption would waste the work entirely.
+
+**A question is not a paragraph in a report.** Attached to the end of a summary it stops
+being a question: the reader is in reading mode, reaches the bottom, and answers nothing.
+So:
+
+- **Ask it on its own, first line, one sentence.** Context goes after the answer, if it
+  is still needed. No table, no options matrix, no section references — a table is for
+  comparing things the reader asked to compare, not for dressing up a question.
+- **One at a time.** Three questions in one message is a form, and forms get closed. Ask
+  the one that blocks the most, act on the answer, then ask the next.
+- **Write it for someone who has read none of this.** The person answering is not
+  reviewing your work; they are being asked about their own project, in their own words.
+  Anything they have to decode first reads as noise and gets skipped.
+- **Mark it so the eye cannot miss it.** A question set in the same prose as everything
+  else is read as narration and scrolled past. Give it a marker the reader's eye catches
+  — 🔴 or the equivalent in whatever surface this is — and use that marker for nothing
+  else. The same goes for anything only the human can do: if you are handing over a step,
+  it has to look different from work you are describing.
+
+An unanswered question and an unasked one cost the same. Asking badly is not asking.
 
 **Write the question down before you ask it.** Any question you cannot answer from the
 code, the contracts, or this protocol goes into the project's open-questions ledger
@@ -500,22 +520,24 @@ left to ask:
 - **Keep it to a handful.** If more than a few are genuinely blocking, say so in one
   line and let the human decide whether to settle them now or later.
 
-Write the answers in as they arrive, and carry on with the session.
+Each slot below carries the question in plain words. **Ask it as written** rather than
+composing your own from the slot's label — the label is the tool's vocabulary, the
+question is theirs. Then write the answers in as they arrive, and carry on.
 
 | Slot | This project |
 |---|---|
-| Contract index | `<TODO>` |
-| Task surface (§5) | `<TODO>` |
-| Branching model (§6) | `<TODO>` — solo (single branch) / team (branch + review) |
-| Working branch (§6) | `<TODO>` |
-| How a change reaches production (§6) | `<TODO>` — or `none` if nothing deploys from here |
-| Health check (§9) | `<TODO>` |
-| Test command | `<TODO>` |
-| Open questions ledger (§4) | `<TODO>` — a file path, or `none` to keep questions in the session only |
-| Session summary format (§7) | `<TODO>` — `default`, or a project-specific shape |
-| Agent commands (§10) | `<TODO>` — the callable commands installed here, or `none` |
-| Where wins are recorded (§8) | `<TODO>` |
-| Additional project rules | `<TODO>` |
+| Contract index | `<TODO>` — ask: *Where are this project’s rules written down?* |
+| Task surface (§5) | `<TODO>` — ask: *Where do you keep what still needs doing?* |
+| Branching model (§6) | `<TODO>` — ask: *Do you work on one branch, or a branch per piece of work?* |
+| Working branch (§6) | `<TODO>` — ask: *Which branch do you commit to day to day?* |
+| How a change reaches production (§6) | `<TODO>` — ask: *How does a change get live from here — or does nothing deploy?* |
+| Health check (§9) | `<TODO>` — ask: *Is there one command that tells you the project is healthy?* |
+| Test command | `<TODO>` — ask: *How do you run the tests?* |
+| Open questions ledger (§4) | `<TODO>` — ask: *Should I write down things I can’t answer, or just ask you and move on?* |
+| Session summary format (§7) | `<TODO>` — ask: *Want a different shape for the “what did we do” summary?* |
+| Agent commands (§10) | `<TODO>` — ask: *Which commands do you type to get me to do things here?* |
+| Where wins are recorded (§8) | `<TODO>` — ask: *Do you keep a file of what got shipped?* |
+| Additional project rules | `<TODO>` — ask: *Anything else about this project I should know up front?* |
 
 ---
 

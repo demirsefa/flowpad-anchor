@@ -288,12 +288,15 @@ const fillSlot = (dir, label, value) => {
   fs.writeFileSync(file, next);
 };
 
-test('check names the unanswered slots instead of counting them', () => {
+test('check prints the question to ask, not the slot label', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
   const { out } = run(dir, ['check']);
   assert.match(line(out, 'slots'), /WARN/);
-  assert.match(line(out, 'slots'), /Branching model/);
+  // The human-language wording, quoted and ready to use...
+  assert.match(line(out, 'slots'), /"Which branch do you commit to day to day\?"/);
+  // ...and not this tool's vocabulary, which is what §12 forbids quoting at a human.
+  assert.doesNotMatch(line(out, 'slots'), /Working branch \(§6\)/);
 });
 
 test('a declared open-questions ledger is read; unasked lines warn, none passes', () => {

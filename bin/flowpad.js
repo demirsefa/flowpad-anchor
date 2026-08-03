@@ -899,11 +899,15 @@ function check(root) {
   //    ask only what the session needs).
   const todos = (local.match(/`<TODO>`/g) || []).length;
   // one <TODO> lives in the explanatory sentence above the table, not in a slot
-  const openNames = [...local.matchAll(/^\| ([^|]+?) \|[^|]*<TODO>[^|]*\|$/gm)].map((m) =>
-    m[1].trim(),
+  //    Print the *question*, not the label. The label is this tool's vocabulary; an agent
+  //    handed a label composes its own question out of it and ends up quoting the
+  //    protocol at someone who has never read it — which §12 forbids and which happened
+  //    anyway, because nothing put the human-language wording in front of the agent.
+  const openSlots = [...local.matchAll(/^\| ([^|]+?) \|[^|]*<TODO>[^|]*?(?:— ask: \*([^*]+)\*)?\s*\|$/gm)].map(
+    (m) => (m[2] || m[1]).trim(),
   );
-  openNames.length
-    ? add('WARN', 'slots', `unanswered in §12: ${openNames.join(' · ')}`)
+  openSlots.length
+    ? add('WARN', 'slots', `ask: ${openSlots.map((q) => `"${q}"`).join(' · ')}`)
     : add('PASS', 'slots', `filled (${todos} mention(s) in prose)`);
 
   // 3b. What §12 *declares* is fair game to verify; what it leaves empty is only a
