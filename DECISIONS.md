@@ -370,3 +370,32 @@ mangles every non-ASCII character in them.
 Both were found by running the CLI against a real pty, not by reading it. Neither is
 reachable from the test suite, which pipes stdin — worth remembering before trusting a
 green run about anything interactive.
+
+### The address of the work is a file of its own, and `check` reads it without credentials
+
+When the tasks stop being markdown in the repository, two things have to be written
+down: **where** the work now lives, and a **generated** summary so that grep and plain
+reading still work. Three choices are worth keeping.
+
+**The pointer is not a key in the lock.** The lock is an installation record and
+`update` rewrites it; an address a refresh can drop is an address nobody can rely on.
+`dev/flowpad/project.json` is the project's file, and `link` merges into it rather than
+replacing it. It is tracked by git by default: the id is not a secret, and the entire
+point is that parallel sessions on one checkout resolve it without asking a human.
+Ignoring it and linking per machine stays available for anyone who disagrees.
+
+**`check` gains no auth and no network.** It runs in a commit hook, and the tool that
+can ask the project — the one holding the credentials — is a different package. So the
+rows here are structural: the pointer parses, the cache still carries the generated
+header its single writer stamps, that header names the project this repository is linked
+to. Real freshness (header revision versus the project's) belongs to the writer, and is
+stated as such in the output rather than left to be inferred: a green row that reads as
+"up to date" while the cache is a month old is worse than no row, because it is trusted.
+
+**The relapse alarm is gated on the link, like every other row.** "Files reappeared in
+the folder the project replaced" is only meaningful for a repository that made the move;
+for everyone else that folder is simply how they work. Same line as the §12 rule above —
+what the project declared is fair game, what it never claimed is not. It is amber and
+stays amber while a migration is in flight, which is correct: the alarm is for the class
+of mistake where an agent quietly re-creates the second source of truth, and an alarm
+that is only armed once the folder is empty would arm too late.

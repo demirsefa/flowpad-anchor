@@ -24,6 +24,41 @@ const GUIDES_DIR = `${PROTOCOL_DIR}/guides`;
 const PRINCIPLES = `${PROTOCOL_DIR}/PRINCIPLES.md`;
 const STALE_DAYS = 180; // a guide older than this is suspect, not wrong
 
+// ---- the canvas link -------------------------------------------------------
+//
+// A repository can point at the project its work is tracked in, so that every session
+// — and every tool with canvas access — resolves the same address without asking a
+// human for it. Deliberately its own file rather than a key in the lock: the lock is an
+// installation record that `update` overwrites, and an address that a refresh can drop
+// is an address nobody can rely on.
+//
+// Tracked by git by default. The id is not a secret, and the point of writing it down
+// is that parallel sessions on the same checkout all read it; a per-machine file would
+// mean re-linking on every clone. A project that disagrees ignores it in .gitignore and
+// links per machine.
+const PROJECT_FILE = `${PROTOCOL_DIR}/project.json`;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A generated, read-only summary of the tracked work, written next to the protocol so
+// that grep and plain reading still work when the source of truth is no longer on disk.
+// One writer (the tool that holds the credentials), never a human — hence the header,
+// which is the only thing that can tell a generated file from one someone started
+// editing.
+//
+// The header contract, shared with the writer: one line, in the first few lines of the
+// file, carrying the mark below and then `key: value` fields separated by `·`.
+//   <!-- GENERATED — DO NOT EDIT · projectId: <uuid> · revision: <n> · generatedAt: <iso> -->
+// Parsing is tolerant about the wrapper and the field order, strict about the mark and
+// about `projectId` — those two are what make it verifiable at all.
+const TASKS_CACHE = `${PROTOCOL_DIR}/tasks-cache.md`;
+const CACHE_MARK = 'GENERATED — DO NOT EDIT';
+
+// The folder markdown tasks used to live in, before the canvas became the task surface.
+// Named here so `check` can raise a relapse alarm: with the content moved, an agent that
+// starts writing task files again re-creates the second source of truth on purpose
+// avoided — and nothing else on disk would ever notice.
+const LEGACY_TASKS_DIR = 'dev/tasks';
+
 // Files this package owns in the consuming repository. Anything listed here is
 // installed by `init`, refreshed by `update`, and hashed into the lock so a local
 // edit can be told from an upstream change. The list exists because a second
@@ -556,6 +591,154 @@ function questions(root) {
   fs.writeFileSync(book.path, lines.join('\n'));
   console.log(c.ok(`${answered.length} answer(s) written`), c.dim(rel));
   return 0;
+}
+
+// ---- the canvas link and its cache -----------------------------------------
+
+// What the repository is linked to: `{ projectId }`, or a reason it cannot be read.
+// Absent is not an error — most repositories are not linked to anything, and a tool
+// that treats "you did not opt in" as a defect gets ignored.
+function projectLink(root) {
+  const abs = path.join(root, PROJECT_FILE);
+  if (!exists(abs)) return null;
+  let json;
+  try {
+    json = JSON.parse(read(abs));
+  } catch (err) {
+    return { error: `is not valid JSON (${err.message})` };
+  }
+  const id = json && typeof json.projectId === 'string' ? json.projectId.trim() : '';
+  if (!id) return { error: 'carries no projectId' };
+  if (!UUID.test(id)) return { error: `projectId is not a valid id: ${id}` };
+  return { projectId: id, json };
+}
+
+// `link <id>` — write the address down, idempotently. Any other keys in the file are
+// kept: this is the project's file, and a future field of somebody else's is not ours
+// to drop.
+function link(root, id) {
+  const current = projectLink(root);
+  if (!id) {
+    if (!current) {
+      console.log(c.dim('Not linked.'), `Run \`npx ${PKG.name} link <projectId>\`.`);
+      return 0;
+    }
+    if (current.error) {
+      console.log(c.bad(`${PROJECT_FILE} ${current.error}`));
+      return 1;
+    }
+    console.log(`${c.ok(current.projectId)}  ${c.dim(PROJECT_FILE)}`);
+    return 0;
+  }
+  if (!UUID.test(id)) {
+    console.error(`Not a project id: ${id}`);
+    return 1;
+  }
+  if (current && !current.error && current.projectId === id) {
+    console.log(`  ${c.dim('same')}  ${PROJECT_FILE} → ${id}`);
+    return 0;
+  }
+  const body = { ...((current && current.json) || {}), projectId: id };
+  const abs = path.join(root, PROJECT_FILE);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, `${JSON.stringify(body, null, 2)}\n`);
+  const was = current && !current.error ? ` ${c.dim(`(was ${current.projectId})`)}` : '';
+  console.log(`  ${c.ok('wrote')}  ${PROJECT_FILE} → ${id}${was}`);
+  console.log(
+    c.dim(
+      '\n  Tracked by git on purpose — every session on this checkout reads the same\n' +
+        '  address. Ignore it and re-link per machine if you would rather not share it.',
+    ),
+  );
+  return 0;
+}
+
+// The generated header, or null when there is none — which is the signal that somebody
+// has been editing a file that has exactly one legitimate writer.
+function cacheHeader(text) {
+  const line = text.split('\n').slice(0, 5).find((l) => l.includes(CACHE_MARK));
+  if (!line) return null;
+  const fields = {};
+  for (const part of line.split('·').slice(1)) {
+    const m = part.match(/^\s*([A-Za-z][\w-]*)\s*:\s*(.+?)\s*(?:-->)?\s*$/);
+    if (m) fields[m[1]] = m[2].trim();
+  }
+  return fields;
+}
+
+// How many files live under a directory, recursively. Used only to decide whether to
+// print a warning, so an unreadable subtree counts as empty rather than throwing.
+function countFiles(dir) {
+  let n = 0;
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    if (e.name.startsWith('.')) continue;
+    n += e.isDirectory() ? countFiles(path.join(dir, e.name)) : 1;
+  }
+  return n;
+}
+
+// The rows `check` prints about the link, the cache and the folder the cache replaced.
+//
+// SCOPE, and it is the whole design of this block: **no network, no credentials.** This
+// tool has neither, and giving it either would put an auth dependency on a check that
+// runs inside a commit hook. So every row here is structural — the file is there, the
+// header parses, the ids agree. Whether the cache is *current* can only be answered by
+// something that can ask the canvas, and that authority lives in the tool that writes
+// the cache. A green row here means "the file is intact", never "the file is fresh",
+// and it says so out loud: a check whose green is read as freshness is worse than no
+// check at all.
+function linkRows(root) {
+  const rows = [];
+  const linked = projectLink(root);
+
+  if (!linked) {
+    // Not linked is a legitimate state, so it must not colour the summary — same rule
+    // as the session channel. It is still reported: silence is how a missing thing
+    // stays missing.
+    rows.push(['INFO', 'project', `not linked to a project — \`npx ${PKG.name} link <projectId>\``]);
+    return rows;
+  }
+  if (linked.error) {
+    rows.push(['WARN', 'project', `${PROJECT_FILE} ${linked.error} — re-run \`npx ${PKG.name} link <projectId>\``]);
+    return rows;
+  }
+  rows.push(['PASS', 'project', `linked to ${linked.projectId}`]);
+
+  const cache = path.join(root, TASKS_CACHE);
+  if (!exists(cache)) {
+    rows.push(['INFO', 'tasks-cache', `${TASKS_CACHE} not generated yet — write it with the canvas tool that holds the credentials (\`sync-cache\`)`]);
+  } else {
+    const header = cacheHeader(read(cache));
+    if (!header || !header.projectId) {
+      rows.push(['WARN', 'tasks-cache', `${TASKS_CACHE} has no generated header — it looks hand-edited; it has one writer, regenerate it`]);
+    } else if (header.projectId !== linked.projectId) {
+      rows.push(['WARN', 'tasks-cache', `${TASKS_CACHE} was generated for ${header.projectId}, this repo is linked to ${linked.projectId} — regenerate it`]);
+    } else {
+      rows.push([
+        'PASS',
+        'tasks-cache',
+        `header intact (revision ${header.revision || '?'}) — structure only, this check cannot tell you whether it is current`,
+      ]);
+    }
+  }
+
+  // The relapse alarm, gated on being linked: a repository that never adopted the
+  // canvas has no business being told its task folder is a problem.
+  const legacy = countFiles(path.join(root, LEGACY_TASKS_DIR));
+  if (legacy)
+    rows.push([
+      'WARN',
+      'task-surface',
+      `${legacy} file(s) under ${LEGACY_TASKS_DIR}/ while the project is the task surface — relapse alarm; it clears when the folder is emptied, so it stays amber for as long as a migration is in flight`,
+    ]);
+
+  return rows;
 }
 
 // ---- slot detection --------------------------------------------------------
@@ -1161,6 +1344,9 @@ function check(root) {
       add('PASS', 'contracts', `${onDisk.length} contract(s), index consistent`);
   }
 
+  // 4b. the canvas link and its generated cache — structural only, see linkRows().
+  for (const row of linkRows(root)) add(...row);
+
   // 5. commit gate — §3's story: the hook files existed, the hook path did not.
   //    Checking that the guard is registered, not that its files are present.
   let hooksPath = null;
@@ -1552,6 +1738,8 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
   ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
                        ${c.dim('add <name>')} to install one
+  ${c.b('npx flowpad link <id>')}   point this repository at the project its work is tracked in
+                       ${c.dim('(no argument: print what it is linked to)')}
   ${c.b('npx flowpad questions')}  answer the open questions the agent wrote down ${c.dim('(§4)')}
   ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
   ${c.b('npx flowpad context')}       print the session brief ${c.dim('(§0 + where the rest lives)')}
@@ -1594,6 +1782,9 @@ switch (cmd) {
     break;
   case 'context':
     process.exit(context(root));
+    break;
+  case 'link':
+    process.exit(link(root, rest[0]));
     break;
   case 'questions':
     process.exit(questions(root));
