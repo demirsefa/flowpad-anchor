@@ -47,9 +47,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 //
 // The header contract, shared with the writer: one line, in the first few lines of the
 // file, carrying the mark below and then `key: value` fields separated by `·`.
-//   <!-- GENERATED — DO NOT EDIT · projectId: <uuid> · revision: <n> · generatedAt: <iso> -->
+//   <!-- GENERATED — DO NOT EDIT · projectId: <uuid> · revision: <n> · tasks: <mark> · generatedAt: <iso> -->
 // Parsing is tolerant about the wrapper and the field order, strict about the mark and
-// about `projectId` — those two are what make it verifiable at all.
+// about `projectId` — those two are what make it verifiable at all. The writer may add
+// fields (`tasks` arrived that way, once a canvas revision alone proved unable to see a
+// task-record edit); an unknown key is simply carried, never a parse failure.
 const TASKS_CACHE = `${PROTOCOL_DIR}/tasks-cache.md`;
 const CACHE_MARK = 'GENERATED — DO NOT EDIT';
 
