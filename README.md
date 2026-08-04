@@ -57,6 +57,7 @@ npx flowpad check                        # verify; exits non-zero when something
 npx flowpad update                       # take a newer protocol, keeping your §12 slots
 npx flowpad guide add react              # install a stack guide
 npx flowpad wire-session                 # make the protocol load at every session start
+npx flowpad questions                    # answer the open questions the agent wrote down
 npx flowpad context                      # print the session brief on stdout
 ```
 

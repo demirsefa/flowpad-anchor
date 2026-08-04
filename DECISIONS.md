@@ -335,3 +335,38 @@ The general form: before a slot becomes a question, it has to fail two tests —
 a sane default, and can the repository answer it? Only what survives both is worth
 interrupting someone for. §12 already said "often nothing is left to ask"; these three
 were a reminder that the tool has to keep earning that sentence, not just print it.
+
+### The ledger gets a reading half, and a moment when someone is actually there
+
+`check` could say "2 question(s) written down but never asked" and nothing more. That is
+a count, and a count is not a question: it reports that something is pending without ever
+putting the wording in front of anybody, so it is skimmed past like every other amber
+row. The mechanism was half-built — the writing half worked, and the asking half was
+still left to an agent remembering.
+
+So the tool now reads the ledger rather than counting its marks. `check` prints the
+questions themselves, which costs four lines and reaches the one reader who is always
+present: the agent, mid-session, at the moment it should be raising them. And `questions`
+answers them at a terminal, offered automatically at the end of `update` — one of the few
+moments this tool runs with the human in front of it.
+
+An answer is appended as a continuation line, never written over the question, and the
+line is marked closed rather than deleted. The question, the assumption the agent carried
+on with, and the answer are three separate facts; the next session reads all three.
+
+The scope line from "what `check` checks" still holds: this reads a file the project
+declared in §12 and prints what is in it. It does not judge the questions, and it cannot
+detect the one nobody noticed — that failure is beyond any tool here.
+
+### Prompts have to survive a human who has not typed yet
+
+Both prompts read stdin non-blockingly, so a read issued before the human typed anything
+threw EAGAIN and was caught as "no answer". Every question answered itself the instant it
+was printed, and the y/N prompt had been quietly defaulting to "no" the same way. Waiting
+on EAGAIN instead is the fix; the read also buffers its bytes and decodes them once,
+because answers are written in the project's own language and a byte-at-a-time decode
+mangles every non-ASCII character in them.
+
+Both were found by running the CLI against a real pty, not by reading it. Neither is
+reachable from the test suite, which pipes stdin — worth remembering before trusting a
+green run about anything interactive.

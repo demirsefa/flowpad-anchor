@@ -393,20 +393,169 @@ function protocolVersion(text) {
   return m ? Number(m[1]) : null;
 }
 
+// Blocking read of one line from stdin, with no dependencies. Returns null when there
+// is nothing to read — a closed or non-interactive stdin — and never confuses that with
+// an empty line, because "the user pressed Enter" and "there is no user" lead to
+// opposite decisions everywhere this is called.
+//
+// Two traps this exists to avoid, both found by running it on a real terminal:
+//   - stdin is non-blocking, so a read issued before the human has typed throws EAGAIN.
+//     Treating that as "no answer" made every prompt answer itself the moment it was
+//     shown. It has to wait instead.
+//   - bytes must be decoded together, not one at a time: any non-ASCII character (every
+//     answer written in Turkish, for a start) arrives as several bytes.
+function readLine() {
+  const byte = Buffer.alloc(1);
+  const bytes = [];
+  for (;;) {
+    let n;
+    try {
+      n = fs.readSync(0, byte, 0, 1, null);
+    } catch (err) {
+      if (err.code === 'EAGAIN') {
+        // Sleep synchronously rather than spin: this is a human-speed wait.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+        continue;
+      }
+      if (err.code === 'EOF') return bytes.length ? decode(bytes) : null;
+      return null;
+    }
+    if (n === 0) return bytes.length ? decode(bytes) : null; // end of input
+    if (byte[0] === 0x0a) return decode(bytes);
+    bytes.push(byte[0]);
+  }
+}
+
+const decode = (bytes) => Buffer.from(bytes).toString('utf8').replace(/\r$/, '').trim();
+
 function ask(question) {
-  // Single-key y/N prompt. Returns false on a non-interactive stdin so that
-  // automated runs never destroy a file by accident — that is what --force is for.
+  // y/N prompt. Returns false on a non-interactive stdin so that automated runs never
+  // destroy a file by accident — that is what --force is for.
   if (!process.stdin.isTTY) return false;
   process.stdout.write(`${question} [y/N] `);
-  const buf = Buffer.alloc(1);
-  try {
-    fs.readSync(0, buf, 0, 1, null);
-  } catch {
-    return false;
+  const answer = readLine();
+  return answer !== null && answer.toLowerCase().startsWith('y');
+}
+
+function promptLine(question) {
+  if (!process.stdin.isTTY) return null;
+  process.stdout.write(question);
+  return readLine();
+}
+
+// ---- the open-questions ledger ---------------------------------------------
+
+function slotOf(text, label) {
+  const row = text.match(
+    new RegExp(`^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^|]*\\| ([^|]+) \\|$`, 'm'),
+  );
+  const v = row && row[1].trim();
+  return !v || v.includes('<TODO>') ? null : v.replace(/`/g, '').trim();
+}
+
+const isNone = (v) => /^none$/i.test(v);
+
+// The ledger belongs to the project — its language, its wording, its ordering. The only
+// structure relied on here is the mark that starts a line; everything after it is
+// carried verbatim and never reformatted. Wrapped continuation lines are folded into
+// the entry above them, so a question that spans four lines is one question.
+//
+// Fenced blocks are skipped: a `- [ ]` inside one is a format example, and counting
+// documentation as an open question makes the check lie about the project's state.
+function readLedger(root, rel) {
+  const abs = path.join(root, rel);
+  if (!exists(abs)) return null;
+  const lines = read(abs).split('\n');
+  const entries = [];
+  let fenced = false;
+  let current = null;
+  lines.forEach((line, i) => {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      current = null;
+      return;
+    }
+    if (fenced) return;
+    const mark = line.match(/^- \[([ ~x])\] (.*)$/);
+    if (mark) {
+      current = { mark: mark[1], text: mark[2], start: i, end: i };
+      entries.push(current);
+      return;
+    }
+    if (current && /^\s+\S/.test(line)) {
+      current.text += ` ${line.trim()}`;
+      current.end = i;
+      return;
+    }
+    current = null;
+  });
+  return { path: abs, rel, lines, entries };
+}
+
+const oneLine = (text, width = 100) =>
+  text.length > width ? `${text.slice(0, width - 1).trimEnd()}…` : text;
+
+// Answering, at a terminal. `check` can only ever report that questions exist — it runs
+// unattended, usually inside an agent's session. This is the other half: the moment the
+// human is actually present, which is what the ledger has been waiting for.
+//
+// An answer is appended as a continuation line rather than written over the question.
+// The question, the assumption the agent proceeded on, and the answer are three
+// different facts, and the next session reads all three.
+function questions(root) {
+  const installed = path.join(root, PROTOCOL_DIR, 'AGENT-INIT.md');
+  if (!exists(installed)) {
+    console.log(c.bad('Not installed here.'), 'Run `npx flowpad init` first.');
+    return 1;
   }
-  const answer = buf.toString('utf8').toLowerCase();
-  process.stdout.write('\n');
-  return answer === 'y';
+  const rel = slotOf(read(installed), 'Open questions ledger');
+  if (!rel || isNone(rel)) {
+    console.log(c.dim('§12 declares no open-questions ledger — nothing to ask.'));
+    return 0;
+  }
+  const book = readLedger(root, rel);
+  if (!book) {
+    console.log(c.bad(`§12 points at ${rel}, which is not there.`));
+    return 1;
+  }
+  const open = book.entries.filter((e) => e.mark !== 'x');
+  if (!open.length) {
+    console.log(c.ok('Nothing open.'), c.dim(rel));
+    return 0;
+  }
+
+  console.log(`\n${c.b(`${open.length} open question(s)`)} ${c.dim(`— ${rel}`)}\n`);
+  if (!process.stdin.isTTY) {
+    // Printing them is still worth it: an agent running this has the questions in
+    // context now, which is exactly when it should be raising them.
+    for (const e of open) console.log(`  ${c.warn('?')} ${oneLine(e.text)}`);
+    console.log(c.dim('\nRun this at a terminal to answer them.'));
+    return 0;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const answered = [];
+  for (const entry of open) {
+    console.log(`  ${c.warn('?')} ${entry.text}`);
+    const answer = promptLine(`  ${c.b('answer')} ${c.dim('(Enter to skip)')} > `);
+    if (answer === null) break; // stdin died mid-run; keep what was answered so far
+    console.log('');
+    if (answer) answered.push({ entry, answer });
+  }
+  if (!answered.length) {
+    console.log(c.dim('Nothing answered — the ledger is unchanged.'));
+    return 0;
+  }
+
+  // Bottom-up, so an insertion never shifts the line numbers of an entry not yet written.
+  const lines = book.lines.slice();
+  for (const { entry, answer } of answered.sort((a, b) => b.entry.start - a.entry.start)) {
+    lines[entry.start] = lines[entry.start].replace(/^- \[[ ~]\]/, '- [x]');
+    lines.splice(entry.end + 1, 0, `      — answered ${today}: ${answer}`);
+  }
+  fs.writeFileSync(book.path, lines.join('\n'));
+  console.log(c.ok(`${answered.length} answer(s) written`), c.dim(rel));
+  return 0;
 }
 
 // ---- slot detection --------------------------------------------------------
@@ -944,24 +1093,18 @@ function check(root) {
   //     question. That line is the whole scope rule here — this is not an audit of the
   //     agent's own configuration (which stays out, see DECISIONS.md), it is a dead-
   //     pointer check on a promise the project made, the same shape as the contract index.
-  const slotValue = (label) => {
-    const row = local.match(
-      new RegExp(`^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^|]*\\| ([^|]+) \\|$`, 'm'),
-    );
-    const v = row && row[1].trim();
-    return !v || v.includes('<TODO>') ? null : v.replace(/`/g, '').trim();
-  };
-  const isNone = (v) => /^none$/i.test(v);
+  const slotValue = (label) => slotOf(local, label);
 
   const ledger = slotValue('Open questions ledger');
+  let openQuestions = [];
   if (ledger && !isNone(ledger)) {
-    const lpath = path.join(root, ledger);
-    if (!exists(lpath)) {
+    const book = readLedger(root, ledger);
+    if (!book) {
       add('FAIL', 'questions', `§12 points at ${ledger}, which is not there`);
     } else {
-      const body = read(lpath);
-      const unasked = (body.match(/^- \[ \]/gm) || []).length;
-      const waiting = (body.match(/^- \[~\]/gm) || []).length;
+      openQuestions = book.entries.filter((e) => e.mark !== 'x');
+      const unasked = openQuestions.filter((e) => e.mark === ' ').length;
+      const waiting = openQuestions.length - unasked;
       const tail = waiting ? `, ${waiting} awaiting an answer` : '';
       unasked
         ? add('WARN', 'questions', `${unasked} question(s) written down but never asked${tail}`)
@@ -1091,6 +1234,18 @@ function check(root) {
     );
 
   report(rows);
+
+  // A count is not a question. "2 question(s) never asked" tells the reader something is
+  // pending but not what, so it is skimmed past like any other amber row — the wording
+  // itself is what makes someone answer, and it costs four lines to print.
+  if (openQuestions.length) {
+    console.log(`\n${c.b('Open questions')} ${c.dim(`— ${ledger}`)}`);
+    for (const e of openQuestions.slice(0, 10))
+      console.log(`  ${e.mark === '~' ? c.dim('~') : c.warn('?')} ${oneLine(e.text)}`);
+    if (openQuestions.length > 10)
+      console.log(c.dim(`  … and ${openQuestions.length - 10} more`));
+    console.log(c.dim(`  Answer them: npx ${PKG.name} questions`));
+  }
   return failed ? 1 : 0;
 }
 
@@ -1196,7 +1351,12 @@ function lockRecord(root) {
 // offered — bringing an install current means the whole install, not just the bytes.
 function update(root, force) {
   const code = updateProtocol(root, force);
-  if (code === 0) offerSession(root, detectAgent(root));
+  if (code !== 0) return code;
+  offerSession(root, detectAgent(root));
+  // `update` is one of the few moments this tool runs with the human in front of it, and
+  // an unanswered question costs the same as an unasked one. Non-interactive runs fall
+  // through to printing only, so a scripted update never blocks waiting on stdin.
+  questions(root);
   return code;
 }
 
@@ -1392,6 +1552,7 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
   ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
                        ${c.dim('add <name>')} to install one
+  ${c.b('npx flowpad questions')}  answer the open questions the agent wrote down ${c.dim('(§4)')}
   ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
   ${c.b('npx flowpad context')}       print the session brief ${c.dim('(§0 + where the rest lives)')}
 
@@ -1433,6 +1594,9 @@ switch (cmd) {
     break;
   case 'context':
     process.exit(context(root));
+    break;
+  case 'questions':
+    process.exit(questions(root));
     break;
   case 'wire-session': {
     const results = [];
