@@ -59,7 +59,6 @@ npx flowpad guide add react              # install a stack guide
 npx flowpad wire-session                 # make the protocol load at every session start
 npx flowpad questions                    # answer the open questions the agent wrote down
 npx flowpad context                      # print the session brief on stdout
-npx flowpad link <projectId>             # point the repo at the project its work is tracked in
 ```
 
 `check` is the part that matters. It verifies that the anchor line is still there, that
@@ -112,33 +111,6 @@ registry probe exists to break.
 Not wiring it is a legitimate choice, so `check` reports its absence at `INFO` and does
 not colour the summary. Levels that colour a summary have to mean *act on this*, or the
 amber rows that do get skimmed past.
-
-## Linking a repository to the project its work lives in
-
-When the tasks are not markdown files in the repository, the repository still has to
-know where they are. `npx flowpad link <projectId>` writes that address into
-`dev/flowpad/project.json` — tracked by git, because the point is that every session on
-the checkout resolves it without asking anyone, and because an id is not a secret. It is
-its own file rather than a key in the install lock: a lock is an installation record
-that `update` overwrites, and an address a refresh can drop is an address nobody relies
-on.
-
-A linked repository may also carry `dev/flowpad/tasks-cache.md` — a **generated,
-read-only** summary of that work, so grep and plain reading keep working. It has exactly
-one writer, the tool that holds the credentials, and it carries a header naming the
-project, the revision it was taken at and when.
-
-`check` then verifies three things, and the boundary matters more than the rows: it has
-**no credentials and no network**, so everything it says is structural — the pointer
-parses, the cache still carries its generated header, the header names the project this
-repository is linked to, and no markdown tasks have reappeared in the folder the project
-replaced. It deliberately does **not** claim the cache is current: only something that
-can ask the project knows that, and a green row misread as "fresh" would be worse than
-no row at all, so the row says so in words.
-
-Both amber cases are about a **declared** address, never an assumed one: an unlinked
-repository gets `INFO`, and the folder-relapse alarm only exists once a project has been
-linked.
 
 ## Honesty
 
