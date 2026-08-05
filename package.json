@@ -27,7 +27,7 @@
     "flowpad": "bin/flowpad.js"
   },
   "scripts": {
-    "test": "node --test test/cli.test.js",
+    "test": "node --test test/cli.test.js test/neutrality.test.js",
     "leak-check": "node scripts/leak-check.js",
     "prepublishOnly": "npm test && node scripts/leak-check.js"
   }

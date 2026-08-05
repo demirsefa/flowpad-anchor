@@ -83,7 +83,7 @@ dragging genuinely needs one. But selection sets that same flag. So a plain clic
 partial layout pass — the one that deliberately exempts nodes being dragged. On a settled
 document, a double-click collapsed an element from 620px to 102px while its sibling
 absorbed the freed space, marking the document dirty and firing a phantom save. The next
-full pass restored it, so it read as the canvas healing itself.
+full pass restored it, so it read as the document healing itself.
 
 The rule "selection must never trigger layout" had been written down. It was rewritten
 three times anyway, each time by a competent author with a reasonable case, because

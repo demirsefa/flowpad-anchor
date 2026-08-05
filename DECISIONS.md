@@ -370,3 +370,32 @@ mangles every non-ASCII character in them.
 Both were found by running the CLI against a real pty, not by reading it. Neither is
 reachable from the test suite, which pipes stdin — worth remembering before trusting a
 green run about anything interactive.
+
+### Project-neutrality is a test, because it was already broken once by a decision
+
+A release added a command that wrote one specific product's project id into the consuming
+repository, plus three `check` rows about that product's task surface and the generated
+task cache next to it. None of it was the protocol's subject. It shipped because a task
+note in that product's workspace described the work as belonging here, and the session
+that implemented it followed the note instead of asking what this package is for.
+
+It was reverted, and the durable part is `test/neutrality.test.js`: a product concept in
+any tracked file fails the suite. Prose already said "project-neutral" — prose does not
+argue back, which is the same lesson §3 of the protocol makes about every other rule.
+
+**The list of forbidden concepts is in `test/`, and not next to the code it guards.** Not
+because test files are unpublished — the repository is world-readable, so "npm does not
+pack it" is not "nobody reads it", and confusing the two is exactly how `leak-check` once
+came to carry the deny list it existed to enforce. The actual reason is narrower and
+unavoidable: a list of product terms written into `bin/` or `protocol/` would *be* product
+vocabulary inside the surface being kept neutral. The guard cannot state its rule inside
+the thing the rule protects.
+
+The line the ban draws is *concept*, not vocabulary. A plain folder convention a slot
+detector may look for stays allowed, and so does naming the product the protocol was
+extracted from — the README says where this came from and the LICENSE carries its
+copyright. Attribution is not a concept leak; a project id is.
+
+What the package owes a consumer is **mechanism**: the slots, the `check` skeleton, guide
+installation. Slot *values* and product-specific checks belong to the consumer's own
+tooling, which is where these three checks now live.
