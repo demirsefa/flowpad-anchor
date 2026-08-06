@@ -434,3 +434,25 @@ the one thing §12 forbids outright. So the slot stays a question the human answ
 `check` keeps asking it, while the lock remembers not to make the offer twice. Without
 that memory "no" is not an answer — it is a question that returns on every `update`,
 which is how a suggestion becomes nagging and how people learn to stop reading the output.
+
+### The wording has to reach the one session that never read the protocol
+
+`check` prints the questions in the human's words; `init` closed with *"fill the remaining
+N `<TODO>` slot(s) in §12"*. Both lines are read by the same agent, and the second one is
+the one that decides what happens, because it lands at the only moment the protocol's own
+text has not arrived yet: the SessionStart channel `init` just wired fires next session,
+so nothing the document says about asking is in context. The installing agent has one
+instruction, and it said *fill*.
+
+Told to fill, an agent does one of the two things §12 forbids: it guesses, or it hands the
+human a command and calls that asking. Both were observed — the second arrived as "run
+`npx flowpad questions` to fill these in", which is also the wrong tool, since `questions`
+reads the ledger and never touches the slot table. That invention is what a vocabulary gap
+produces: an agent that has been given a label, a section number and a verb, and has to
+manufacture the rest.
+
+So `init` prints what `check` prints, from the same function — the questions, marked, one
+per line, with no section numbers and no order to fill anything. The general form is the
+sequel to "asking badly is not asking": wording that only exists on the reporting path is
+wording the install path will reinvent. The test asserts the absence — no "fill", no
+`<TODO>`, no "slot" — because that is the half that rots quietly.

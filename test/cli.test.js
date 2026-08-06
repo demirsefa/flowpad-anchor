@@ -460,6 +460,20 @@ test('an unfilled ledger or command slot is a question, not a failure', () => {
   assert.strictEqual(line(out, 'commands'), '');
 });
 
+test('init closes by handing the agent the questions, not an order to fill slots', () => {
+  // init is the one moment the protocol's own text has not reached the session: the
+  // SessionStart hook it just wired fires next session, so this closing line is the whole
+  // instruction. Told to "fill", agents either guessed the answers or handed the human a
+  // command to run — both of which §12 exists to prevent.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const { out } = run(dir, ['init', '--agent=claude']);
+  const tail = out.slice(out.indexOf('Next:'));
+  assert.match(tail, /question\(s\) for the human/);
+  assert.match(tail, /Which branch do you commit to day to day\?/);
+  assert.doesNotMatch(tail, /\bfill\b/i, `an order to fill leaked into: ${tail}`);
+  assert.doesNotMatch(tail, /<TODO>|\bslot\(s\)/i, `this tool's vocabulary leaked into: ${tail}`);
+});
+
 test('a slot with a default or a detectable answer is never a question', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   fs.mkdirSync(path.join(dir, '.claude/skills/publish'), { recursive: true });

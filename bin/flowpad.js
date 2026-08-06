@@ -455,6 +455,26 @@ function slotOf(text, label) {
 
 const isNone = (v) => /^none$/i.test(v);
 
+// The unfilled §12 slots, as the *questions* they are — never as their labels. The label
+// is this tool's vocabulary; an agent handed a label composes its own question out of it
+// and ends up quoting the protocol at someone who has never read it, which §12 forbids
+// and which happened anyway, because nothing put the human-language wording in front of
+// the agent. Shared by `check` and `init` on purpose: `init` is the one moment the
+// protocol's own text has not reached the session yet (the SessionStart hook it just
+// wired fires next session), so its closing line is the only instruction the installing
+// agent gets. It used to say "fill these slots", and an agent told to fill either guessed
+// or handed the human a command — the two failures §12 exists to prevent.
+//
+// Take the whole cell first, then look for the wording inside it. Matching the row and
+// the wording in one expression put an optional group next to a lazy one, and the engine
+// simply skipped the wording — every question silently came out as its label.
+function openSlotQuestions(text) {
+  return [...text.matchAll(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm)].map((m) => {
+    const asked = m[2].match(/— ask: \*([^*]+)\*/);
+    return (asked ? asked[1] : m[1]).trim();
+  });
+}
+
 // The ledger belongs to the project — its language, its wording, its ordering. The only
 // structure relied on here is the mark that starts a line; everything after it is
 // carried verbatim and never reformatted. Wrapped continuation lines are folded into
@@ -978,12 +998,19 @@ function init(root, force, opts = {}) {
   const reflex = REFLEXES[opts.agent];
   if (reflex) console.log(`\n${c.dim(`Reflexes (§10 step 4) — ${opts.agent}: ${reflex}`)}`);
 
-  const todos = (installed.match(/^\|[^|]+\|[^|]*<TODO>[^|]*\|$/gm) || []).length;
+  const open = openSlotQuestions(installed);
+  if (!open.length) {
+    console.log(`\n${c.ok('Done.')} Run \`npx flowpad check\` to verify.`);
+    return;
+  }
+  // Addressed to the agent that ran init, in the only words that survive it having read
+  // nothing yet: these are questions, they belong to the human, and here they are. See
+  // openSlotQuestions for why this cannot say "fill".
   console.log(
-    todos
-      ? `\n${c.warn('Next:')} fill the remaining ${todos} \`<TODO>\` slot(s) in §12, then run \`npx flowpad check\`.`
-      : `\n${c.ok('Done.')} Run \`npx flowpad check\` to verify.`,
+    `\n${c.warn('Next:')} ${open.length} question(s) for the human — ask them in conversation, then write the answers into §12:`,
   );
+  for (const q of open) console.log(`  ${c.warn('?')} ${q}`);
+  console.log(c.dim('\nThen run `npx flowpad check`.'));
 }
 
 // ---- check -----------------------------------------------------------------
@@ -1110,20 +1137,9 @@ function check(root) {
   // 3. unfilled slots. Naming them matters: a count sends the agent to open the file
   //    before it knows whether the question is even relevant to this session (§12 says
   //    ask only what the session needs).
-  const todos = (local.match(/`<TODO>`/g) || []).length;
   // one <TODO> lives in the explanatory sentence above the table, not in a slot
-  //    Print the *question*, not the label. The label is this tool's vocabulary; an agent
-  //    handed a label composes its own question out of it and ends up quoting the
-  //    protocol at someone who has never read it — which §12 forbids and which happened
-  //    anyway, because nothing put the human-language wording in front of the agent.
-  // Take the whole cell first, then look for the wording inside it. Matching the row and
-  // the wording in one expression put an optional group next to a lazy one, and the
-  // engine simply skipped the wording — every question silently came out as its label,
-  // which is the leak this mechanism exists to prevent.
-  const openSlots = [...local.matchAll(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm)].map((m) => {
-    const asked = m[2].match(/— ask: \*([^*]+)\*/);
-    return (asked ? asked[1] : m[1]).trim();
-  });
+  const todos = (local.match(/`<TODO>`/g) || []).length;
+  const openSlots = openSlotQuestions(local);
   openSlots.length
     ? add('WARN', 'slots', `ask: ${openSlots.map((q) => `"${q}"`).join(' · ')}`)
     : add('PASS', 'slots', `filled (${todos} mention(s) in prose)`);
