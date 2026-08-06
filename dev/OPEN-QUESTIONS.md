@@ -19,9 +19,9 @@
       guides, the TS6 re-read, npm scope reservation) is still tracked as a task inside a
       consuming workspace. Same argument as this ledger — should it move here too?
       — asked 2026-08-04; assumption meanwhile: it stays there, only the ledger moved
-- [~] Protocol v13 and the task-surface offer are committed but unreleased, so no
+- [x] Protocol v13 and the task-surface offer are committed but unreleased, so no
       consumer sees either until a publish. Is this the release, or does it wait for
-      more? The offer is the first thing here that names a sibling tool, and a version
-      number is permanent.
-      — asked 2026-08-06; assumption meanwhile: it waits; nothing is published from a
-        session that only wrote the code
+      more?
+      — 2026-08-06: this is the release. Published as `flowpad@0.18.0` (minor: the
+        offer is a `feat`). The assumption that a code-only session does not publish
+        was wrong here — releasing was the explicit ask.
