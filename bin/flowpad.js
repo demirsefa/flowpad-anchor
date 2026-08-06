@@ -882,6 +882,44 @@ function offerSession(root, agent, opts = {}) {
   );
 }
 
+// The one place this package names a product. It is an OFFER, made once, at the moment
+// a repository has no answer for where its work is tracked — not a rule, and nothing in
+// `protocol/` mentions it. The boundary that keeps this honest: an offer may name a
+// sibling tool, the protocol may not. §5 states the neutral rule ("if the surface is a
+// tool, manage tasks through it") and stays true for a repository that answers this
+// with a folder, an issue tracker, or nothing at all.
+//
+// Asked only while the slot is still unanswered, and only once either way — see
+// readOffers for why a refusal is remembered in the lock instead of in §12.
+function offerTaskSurface(root, opts = {}) {
+  const protocolPath = path.join(root, PROTOCOL_FILE);
+  if (!exists(protocolPath)) return;
+  const body = read(protocolPath);
+  if (slotOf(body, 'Task surface')) return; // already answered — the question is settled
+  if (readOffers(root).taskSurface) return; // already asked once
+
+  const accepted =
+    opts.tasks || ask('\nTrack this repo\'s tasks in FlowPad? (a canvas board an agent can read and write)');
+  if (!process.stdin.isTTY && !opts.tasks) {
+    // No human was there to answer, so nothing was declined. Print, do not record — a
+    // scripted install must never spend the one question a human has not seen yet.
+    console.log(
+      `\n${c.dim('Tasks:')} nowhere recorded yet — ${c.b('npx flowpad-mcp')} puts them on a FlowPad board, or fill the §12 slot with whatever you already use.`,
+    );
+    return;
+  }
+  recordOffer(root, 'taskSurface', accepted ? 'accepted' : 'declined');
+  if (!accepted) return; // "no" closes it, silently and for good
+
+  fs.writeFileSync(protocolPath, applySlots(body, { 'Task surface (§5)': 'FlowPad — `npx flowpad-mcp`' }));
+  // Filling a slot changes the installed file, so the lock's hash of it is now stale —
+  // and a stale hash reads as "the user edited this", which makes `update` protect an
+  // edit nobody made. Re-record here rather than at every call site.
+  const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
+  if (exists(lockPath)) fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
+  console.log(`  ${c.ok('set')}  §12 Task surface → FlowPad · set it up with ${c.b('npx flowpad-mcp')}`);
+}
+
 // §10 step 4: the reflexes that turn "intent only" rows in §9 into something
 // mechanical. Nothing checks whether they were wired, so the least this tool can do is
 // name them at the moment the agent is looking at its output.
@@ -935,6 +973,7 @@ function init(root, force, opts = {}) {
   for (const [tag, file] of results) console.log(`  ${tag}  ${file}`);
   offerGuides(root, opts);
   offerSession(root, opts.agent, opts);
+  offerTaskSurface(root, opts);
 
   const reflex = REFLEXES[opts.agent];
   if (reflex) console.log(`\n${c.dim(`Reflexes (§10 step 4) — ${opts.agent}: ${reflex}`)}`);
@@ -1330,6 +1369,39 @@ function refreshDigestBlocks(root) {
   }
 }
 
+// ---- one-time offers -------------------------------------------------------
+
+// An offer is asked once and remembered. Without a memory, "no" is not an answer — it
+// is a question that comes back on the next `init` and every `update` after it, which
+// is how a suggestion becomes nagging and how people learn to stop reading this tool's
+// output. The answer lives in the lock rather than in §12 because a refusal is NOT a
+// project setting: someone declining one option has not told us where their tasks live,
+// and writing a guess into a slot is the one thing §12 forbids outright.
+function readOffers(root) {
+  const abs = path.join(root, PROTOCOL_DIR, LOCK);
+  if (!exists(abs)) return {};
+  try {
+    return JSON.parse(read(abs)).offers || {};
+  } catch {
+    // A hand-edited or truncated lock is not worth failing a command over; the worst
+    // case is one re-asked question, and that is the safe direction.
+    return {};
+  }
+}
+
+function recordOffer(root, key, answer) {
+  const abs = path.join(root, PROTOCOL_DIR, LOCK);
+  if (!exists(abs)) return;
+  let lock;
+  try {
+    lock = JSON.parse(read(abs));
+  } catch {
+    return; // same reasoning as readOffers: never turn a bad lock into a failed command
+  }
+  lock.offers = { ...(lock.offers || {}), [key]: answer };
+  fs.writeFileSync(abs, `${JSON.stringify(lock, null, 2)}\n`);
+}
+
 // The lock records both what is on disk and what upstream shipped, per managed file.
 // The pair is what makes "the user edited this" distinguishable from "upstream moved".
 function lockRecord(root) {
@@ -1344,6 +1416,10 @@ function lockRecord(root) {
     packageVersion: PKG.version,
     protocolVersion: exists(protocol) ? protocolVersion(read(protocol)) : null,
     files,
+    // Answers to one-time offers, carried across every rewrite of this file. Losing one
+    // does not corrupt an install — it re-asks a question that was already answered,
+    // which is how an offer turns into nagging.
+    ...(Object.keys(readOffers(root)).length ? { offers: readOffers(root) } : {}),
   };
 }
 
@@ -1353,6 +1429,7 @@ function update(root, force) {
   const code = updateProtocol(root, force);
   if (code !== 0) return code;
   offerSession(root, detectAgent(root));
+  offerTaskSurface(root);
   // `update` is one of the few moments this tool runs with the human in front of it, and
   // an unanswered question costs the same as an unasked one. Non-interactive runs fall
   // through to printing only, so a scripted update never blocks waiting on stdin.
@@ -1561,6 +1638,7 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.dim('--wire')}           also wire \`flowpad check\` into the commit gate and the
                    protocol into the session start, so both run without being remembered
   ${c.dim('--guides')}         install the guides for the stacks detected here without asking
+  ${c.dim('--tasks')}          answer the task-surface offer with yes without being asked
   ${c.dim('--force')}          skip the overwrite prompt
 `);
 }
@@ -1577,11 +1655,12 @@ if (agentName && !AGENT_FILES[agentName]) {
 const anchor = agentName ? AGENT_FILES[agentName] : undefined;
 const wire = process.argv.includes('--wire');
 const guides = process.argv.includes('--guides');
+const tasks = process.argv.includes('--tasks');
 const root = repoRoot();
 
 switch (cmd) {
   case 'init':
-    init(root, force, { anchor, agent: agentName, wire, guides });
+    init(root, force, { anchor, agent: agentName, wire, guides, tasks });
     break;
   case 'check':
     process.exit(check(root));

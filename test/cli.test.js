@@ -258,6 +258,55 @@ test('an unwired session channel is reported, but is not a warning', () => {
   assert.match(out, /wire-session/);
 });
 
+const lockOf = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'dev/flowpad/.flowpad-lock.json'), 'utf8'));
+const slotRow = (dir) =>
+  fs
+    .readFileSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md'), 'utf8')
+    .split('\n')
+    .find((l) => l.startsWith('| Task surface')) || '';
+
+test('the task-surface offer is printed but not spent when nobody is there to answer', () => {
+  // Same rule as the session channel: non-interactive means "offer, do not act". The
+  // extra stake here is the memory — recording a decline nobody made would burn a
+  // one-time question on a scripted install and it would never be asked again.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const { out } = run(dir, ['init', '--agent=claude'], { mustPass: true });
+  assert.match(out, /flowpad-mcp/);
+  assert.strictEqual(lockOf(dir).offers, undefined);
+  assert.match(slotRow(dir), /<TODO>/);
+});
+
+test('accepting the task-surface offer fills the slot and is never asked again', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude', '--tasks'], { mustPass: true });
+  assert.match(slotRow(dir), /FlowPad/);
+  assert.strictEqual(lockOf(dir).offers.taskSurface, 'accepted');
+  // The lock must still describe the file that is now on disk. Filling a slot rewrites
+  // the protocol, and a stale hash would make `update` defend an edit nobody made.
+  assert.doesNotMatch(run(dir, ['update'], { mustPass: true }).out, /edited|Overwrite/i);
+});
+
+test('a declined task surface closes the question for good', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude'], { mustPass: true });
+  const lockPath = path.join(dir, 'dev/flowpad/.flowpad-lock.json');
+  fs.writeFileSync(lockPath, JSON.stringify({ ...lockOf(dir), offers: { taskSurface: 'declined' } }));
+  const { out } = run(dir, ['update'], { mustPass: true });
+  assert.doesNotMatch(out, /flowpad-mcp/);
+  // A refusal is not a project setting: it says nothing about where tasks actually live,
+  // so the slot stays a question the human answers, and `check` keeps asking it.
+  assert.match(slotRow(dir), /<TODO>/);
+  assert.strictEqual(lockOf(dir).offers.taskSurface, 'declined');
+});
+
+test('a repository that already tracks tasks somewhere is never offered another surface', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  fs.mkdirSync(path.join(dir, 'dev/tasks'), { recursive: true });
+  const { out } = run(dir, ['init', '--agent=claude'], { mustPass: true });
+  assert.doesNotMatch(out, /flowpad-mcp/);
+  assert.match(slotRow(dir), /dev\/tasks/);
+});
+
 test('context is silent and succeeds where nothing is installed', () => {
   // It runs at session start; a tool that prints an error there gets removed.
   const dir = repo({ 'package.json': { name: 'app' } });

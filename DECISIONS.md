@@ -399,3 +399,38 @@ copyright. Attribution is not a concept leak; a project id is.
 What the package owes a consumer is **mechanism**: the slots, the `check` skeleton, guide
 installation. Slot *values* and product-specific checks belong to the consumer's own
 tooling, which is where these three checks now live.
+
+### The package may make an offer; it may not build in a dependency
+
+The neutrality rule above was written a day after the leak it exists to stop, and it was
+drawn one notch too wide: it banned the product's *name* alongside the product's
+*implementation*. Those are not the same risk, and reading them as one would have made
+this package unable to mention the tool it was extracted from — while a README that
+already names it sat inside the same scan.
+
+The line that actually matters is whether a consumer can **answer**. An offer at install
+time — "track this repo's tasks in FlowPad?" — is answerable: a repository that has never
+heard of the product says no once, the refusal is remembered, and nothing else in the
+install changes. A project id from that product's schema, one of its tool names, or a
+file its tooling generates is not a
+question anyone can answer; it is one product's implementation reaching into a neutral
+package, and it chains this package's releases to that product's schema. The first is
+marketing, which every package does. The second is coupling, which is what was reverted.
+
+So the allowance is per-file and per-term, never global. `protocol/`, `principles/` and
+`guides/` are the documents consumers vendor into their own repositories and read as
+neutral law — nothing product-shaped may appear there, and §5 states the rule ("if the
+surface is a tool, work through it") without naming any tool, which is what keeps it true
+for a consumer who answers with a folder or an issue tracker. `bin/`, `README.md` and
+`test/` may say only the two terms the offer itself has to say. Everything else on the
+list still fails everywhere. `test/neutrality.test.js` carries both the hole and a test
+that the hole stays narrow, because the predictable failure mode is widening it one term
+at a time until the wall is gone.
+
+**A refusal is remembered in the lock, not in §12.** The tempting shortcut is to write
+the declined offer into the task-surface slot, and it is wrong: someone who does not want
+this product has not told us where their tasks *do* live, and inventing a slot value is
+the one thing §12 forbids outright. So the slot stays a question the human answers and
+`check` keeps asking it, while the lock remembers not to make the offer twice. Without
+that memory "no" is not an answer — it is a question that returns on every `update`,
+which is how a suggestion becomes nagging and how people learn to stop reading the output.

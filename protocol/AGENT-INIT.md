@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 12
+version: 13
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -236,6 +236,17 @@ exactly what was asked.
 The rules below hold regardless of where tasks are stored; **where** they live is a
 project setting (§12).
 
+- **There is one surface, and §12 names it.** If it is a tool rather than a folder of
+  files, work through the tool. A file opened alongside it is not a note — it is a
+  second surface, and within a week one of the two is quietly wrong while both still
+  look authoritative.
+- **A session that leaves a trace is a task.** Opening one and closing it is ordinary
+  reversible work, so it needs no permission (§4) — do it as part of the job rather
+  than asking. The test is what survives the session: something a person who never read
+  the conversation would later go looking for — a commit, a decision, a document, a
+  finding. If all that survives is the conversation itself, there is no task. **When it
+  is a close call, do not open one:** a backlog nobody trusts costs more than a record
+  nobody wrote.
 - **Self-contained.** Someone opening the task must be able to start without reading
   anything else: context, reason, steps, and how it will be verified when done.
 - **Split by owner.** Work an agent can finish alone, versus work that requires a human
