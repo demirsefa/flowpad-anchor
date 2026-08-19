@@ -87,10 +87,18 @@ const SELF = path.basename(__filename);
 // Everything git tracks — the union of what npm uploads and what a stranger reads on
 // GitHub. Scanning the packed set alone would miss the wider of the two surfaces.
 function trackedFiles() {
-  return execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' })
-    .split('\n')
-    .filter(Boolean)
-    .filter((f) => path.basename(f) !== SELF);
+  return (
+    execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((f) => path.basename(f) !== SELF)
+      // The committed Yarn release is vendored bytes, not our prose: nobody reads
+      // a minified toolchain as a statement about this package, we cannot edit it,
+      // and it is outside `files` so npm never ships it. Its bundled sources
+      // mention half the words in any forbidden list, which would make this guard
+      // fail on a fact about Yarn rather than about us.
+      .filter((f) => !f.startsWith('.yarn/'))
+  );
 }
 
 test('no product concept reaches the published, project-neutral surface', () => {
@@ -106,16 +114,18 @@ test('no product concept reaches the published, project-neutral surface', () => 
       const lower = line.toLowerCase();
       for (const term of FORBIDDEN)
         if (lower.includes(term.toLowerCase()) && !allowedPitch(file, term))
-          findings.push(`${file}:${i + 1}  [${term}]  ${line.trim().slice(0, 90)}`);
+          findings.push(
+            `${file}:${i + 1}  [${term}]  ${line.trim().slice(0, 90)}`,
+          );
     });
   }
 
   assert.deepStrictEqual(
     findings,
     [],
-    'A consuming product\'s concept reached this package. This package provides MECHANISM\n' +
+    "A consuming product's concept reached this package. This package provides MECHANISM\n" +
       '(slots, the check skeleton, guide installation); slot VALUES and product-specific\n' +
-      'checks belong to the consumer\'s own tooling. Move it there — do NOT answer this\n' +
+      "checks belong to the consumer's own tooling. Move it there — do NOT answer this\n" +
       'failure by deleting the term from FORBIDDEN.\n\n' +
       findings.join('\n'),
   );
@@ -124,18 +134,39 @@ test('no product concept reaches the published, project-neutral surface', () => 
 test('the pitch allowance stays narrow', () => {
   // The failure this guards: the hole gets widened one term at a time until the wall is
   // gone. Each assertion below is a direction someone will be tempted to widen in.
-  assert.ok(!allowedPitch('bin/flowpad.js', 'list_tasks'), 'an implementation term slipped into the pitch allowance');
-  assert.ok(!allowedPitch('bin/flowpad.js', 'projectId'), 'an implementation term slipped into the pitch allowance');
-  assert.ok(!allowedPitch('protocol/AGENT-INIT.md', 'flowpad-mcp'), 'the protocol must never name a product');
-  assert.ok(!allowedPitch('guides/react.md', 'canvas'), 'a guide must never name a product');
-  assert.ok(allowedPitch('bin/flowpad.js', 'flowpad-mcp'), 'the offer can no longer say what it offers');
+  assert.ok(
+    !allowedPitch('bin/flowpad.js', 'list_tasks'),
+    'an implementation term slipped into the pitch allowance',
+  );
+  assert.ok(
+    !allowedPitch('bin/flowpad.js', 'projectId'),
+    'an implementation term slipped into the pitch allowance',
+  );
+  assert.ok(
+    !allowedPitch('protocol/AGENT-INIT.md', 'flowpad-mcp'),
+    'the protocol must never name a product',
+  );
+  assert.ok(
+    !allowedPitch('guides/react.md', 'canvas'),
+    'a guide must never name a product',
+  );
+  assert.ok(
+    allowedPitch('bin/flowpad.js', 'flowpad-mcp'),
+    'the offer can no longer say what it offers',
+  );
 });
 
 test('the forbidden list is actually being applied', () => {
   // Without this, a broken scan (empty file list, a path bug) would report a clean run
   // forever — the failure mode of every guard that only ever passes.
   const files = trackedFiles();
-  assert.ok(files.length > 5, `scan found only ${files.length} file(s) — the surface is not being read`);
-  assert.ok(files.includes('bin/flowpad.js'), 'the published binary was not in the scanned set');
+  assert.ok(
+    files.length > 5,
+    `scan found only ${files.length} file(s) — the surface is not being read`,
+  );
+  assert.ok(
+    files.includes('bin/flowpad.js'),
+    'the published binary was not in the scanned set',
+  );
   assert.ok(!files.includes(`test/${SELF}`), 'the guard is scanning itself');
 });

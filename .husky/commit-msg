@@ -1,0 +1,20 @@
+commit_msg=$(cat "$1")
+
+if [ -z "$commit_msg" ]; then
+  echo "❌ Commit mesajı boş olamaz!"
+  exit 1
+fi
+
+# --- English-only commit subjects (workspace rule, see CLAUDE.md) ------------
+# Task and commit language is English. Turkish-specific letters are a tripwire:
+# they never occur in an English subject, and a Turkish sentence almost always
+# carries at least one. Only LETTERS are checked, not punctuation: the em dash in
+# our subject style is non-ASCII and must keep working, so a blanket non-ASCII
+# check is wrong here. Not airtight (a short subject can dodge every letter) but
+# false-positive free in practice. No escape hatch: --no-verify is banned.
+subject_line=$(head -n1 "$1")
+if printf '%s' "$subject_line" | grep -qF -e 'ğ' -e 'ş' -e 'ı' -e 'İ' -e 'Ğ' -e 'Ş' \
+     -e 'ç' -e 'Ç' -e 'ö' -e 'Ö' -e 'ü' -e 'Ü'; then
+  echo "❌ Commit subject must be written in English: $subject_line"
+  exit 1
+fi

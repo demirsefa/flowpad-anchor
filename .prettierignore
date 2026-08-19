@@ -1,0 +1,8 @@
+node_modules/
+.yarn/
+# Protocol/guide/principle bodies are prose shipped verbatim to consumers —
+# reflowing them would rewrite upstream text nobody asked to change.
+*.md
+# Yarn writes and rewrites this itself.
+.yarnrc.yml
+yarn.lock

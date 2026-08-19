@@ -1,0 +1,3 @@
+# Zero-dep CLI, four source files — the whole gate runs in seconds, so there is
+# no reason to stage-scope it the way the bigger repos do with lint-staged.
+yarn validate

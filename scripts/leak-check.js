@@ -38,7 +38,10 @@ const OWNER = (() => {
 // One entry per CLASS of disclosure. Narrow on purpose: a false failure is
 // cheap to allow-list, a missed leak is permanent.
 const PATTERNS = [
-  { re: /\/(?:Users|home)\/[A-Za-z0-9._-]+\//, what: 'absolute local home path' },
+  {
+    re: /\/(?:Users|home)\/[A-Za-z0-9._-]+\//,
+    what: 'absolute local home path',
+  },
   { re: /~\/Projects\b/, what: 'maintainer workspace path' },
   { re: /\blocalhost:\d{4,5}\b/, what: 'local service port' },
   { re: /\b\d{1,3}(?:\.\d{1,3}){3}\b/, what: 'bare IP address' },
@@ -49,13 +52,20 @@ const PATTERNS = [
 const ALLOW = [/github\.com\/demirsefa\/flowpad-anchor/i];
 
 function scannedFiles() {
-  const out = execFileSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8' });
+  const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    encoding: 'utf8',
+  });
   const packed = (JSON.parse(out)[0].files || []).map((f) => f.path);
   // Tracked-but-unpacked files are invisible to npm and fully public on GitHub.
   const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
     .split('\n')
     .filter(Boolean);
-  return [...new Set([...packed, ...tracked])];
+  // The committed Yarn release is vendored upstream bytes: not written here, not
+  // editable here, and outside `files` so npm never uploads it. Scanning a
+  // minified toolchain only produces matches that are facts about Yarn — the one
+  // thing this gate cannot act on. Everything we author stays in scope.
+  const vendored = (f) => f.startsWith('.yarn/');
+  return [...new Set([...packed, ...tracked])].filter((f) => !vendored(f));
 }
 
 const findings = [];
@@ -71,9 +81,19 @@ for (const file of files) {
     if (ALLOW.some((re) => re.test(line))) return;
     for (const { re, what } of PATTERNS)
       if (re.test(line))
-        findings.push({ file, line: i + 1, term: what, text: line.trim().slice(0, 100) });
+        findings.push({
+          file,
+          line: i + 1,
+          term: what,
+          text: line.trim().slice(0, 100),
+        });
     if (OWNER && line.includes(OWNER))
-      findings.push({ file, line: i + 1, term: 'maintainer username', text: '(redacted)' });
+      findings.push({
+        file,
+        line: i + 1,
+        term: 'maintainer username',
+        text: '(redacted)',
+      });
   });
 }
 
@@ -83,7 +103,8 @@ if (!findings.length) {
 }
 
 console.error('\nleak-check FAILED — internal terms would be published:\n');
-for (const f of findings) console.error(`  ${f.file}:${f.line}  [${f.term}]  ${f.text}`);
+for (const f of findings)
+  console.error(`  ${f.file}:${f.line}  [${f.term}]  ${f.text}`);
 console.error(
   '\nThe published package describes the method, not our setup. Move the detail into a\n' +
     'project slot (§12) or the project instruction file, or add a narrow exception to\n' +

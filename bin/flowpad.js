@@ -30,8 +30,15 @@ const STALE_DAYS = 180; // a guide older than this is suspect, not wrong
 // managed file used to mean a second copy of that logic — and the copy that gets
 // forgotten is the one that silently overwrites somebody's work.
 const MANAGED = [
-  { src: path.join(SRC, 'AGENT-INIT.md'), dest: `${PROTOCOL_DIR}/AGENT-INIT.md`, slots: true },
-  { src: path.join(SRC, '..', 'principles', 'CODE-PRINCIPLES.md'), dest: PRINCIPLES },
+  {
+    src: path.join(SRC, 'AGENT-INIT.md'),
+    dest: `${PROTOCOL_DIR}/AGENT-INIT.md`,
+    slots: true,
+  },
+  {
+    src: path.join(SRC, '..', 'principles', 'CODE-PRINCIPLES.md'),
+    dest: PRINCIPLES,
+  },
 ];
 const PROTOCOL_FILE = MANAGED[0].dest;
 
@@ -74,7 +81,8 @@ const DIGEST_TO = '## 1.';
 // Markers, not a hand-copied excerpt: `update` refreshes what is between them and
 // `check` goes amber when it drifts. An unguarded copy is the disease this package
 // exists to fight; a guarded one is a cache.
-const DIGEST_START = '<!-- flowpad:digest start — tool-managed, edits are overwritten -->';
+const DIGEST_START =
+  '<!-- flowpad:digest start — tool-managed, edits are overwritten -->';
 const DIGEST_END = '<!-- flowpad:digest end -->';
 
 // What the session hook runs. It reads the *installed* file rather than calling this
@@ -98,12 +106,18 @@ const SESSION_HOOK_AGENTS = { claude: '.claude/settings.json' };
 
 // ---- small helpers ---------------------------------------------------------
 
+// Colour only when a human is watching. Both signals mean the opposite: NO_COLOR
+// is the de-facto opt-out, and a non-TTY stdout means the text is being piped
+// into a file, a log or another program, where escape codes are just noise.
+const COLOUR = !process.env.NO_COLOR && Boolean(process.stdout.isTTY);
+const paint = (code) => (s) => (COLOUR ? `\x1b[${code}m${s}\x1b[0m` : `${s}`);
+
 const c = {
-  ok: (s) => `\x1b[32m${s}\x1b[0m`,
-  warn: (s) => `\x1b[33m${s}\x1b[0m`,
-  bad: (s) => `\x1b[31m${s}\x1b[0m`,
-  dim: (s) => `\x1b[2m${s}\x1b[0m`,
-  b: (s) => `\x1b[1m${s}\x1b[0m`,
+  ok: paint(32),
+  warn: paint(33),
+  bad: paint(31),
+  dim: paint(2),
+  b: paint(1),
 };
 
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -123,10 +137,14 @@ function repoRoot() {
 
 function gitBranch(root) {
   try {
-    return execFileSync('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
   } catch {
     return null;
   }
@@ -153,7 +171,12 @@ function manifests(root) {
   try {
     children = fs
       .readdirSync(root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules');
+      .filter(
+        (e) =>
+          e.isDirectory() &&
+          !e.name.startsWith('.') &&
+          e.name !== 'node_modules',
+      );
   } catch {
     children = [];
   }
@@ -199,7 +222,11 @@ function majorOf(range) {
 function verifiedAgainst(value) {
   const m = String(value || '').match(/^([@\w./-]+)@(\d+)(?:\s*-\s*(\d+))?/);
   if (!m) return null;
-  return { name: m[1], from: Number(m[2]), to: m[3] ? Number(m[3]) : Number(m[2]) };
+  return {
+    name: m[1],
+    from: Number(m[2]),
+    to: m[3] ? Number(m[3]) : Number(m[2]),
+  };
 }
 
 // Minimal LCS line diff. Zero dependencies is a feature here: this runs inside a
@@ -210,7 +237,10 @@ function diffLines(a, b) {
   const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
   for (let i = n - 1; i >= 0; i--)
     for (let j = m - 1; j >= 0; j--)
-      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      lcs[i][j] =
+        a[i] === b[j]
+          ? lcs[i + 1][j + 1] + 1
+          : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
   const out = [];
   let i = 0;
   let j = 0;
@@ -238,7 +268,7 @@ function frontMatter(text) {
   // in a real repository turned off both the staleness and the version-mismatch check
   // for that guide, and the row degraded to "no last-reviewed date" — which reads as a
   // guide that was never dated rather than a guard that stopped guarding.
-  const m = text.replace(/^﻿?[ \t]*/, '').match(/^---\n([\s\S]*?)\n---/);
+  const m = text.replace(/^\uFEFF?[ \t]*/, '').match(/^---\n([\s\S]*?)\n---/);
   if (!m) return {};
   return Object.fromEntries(
     m[1]
@@ -288,7 +318,10 @@ function writeDigestBlock(root, file, digest) {
     return 'refreshed';
   }
   fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, `${body}${body && !body.endsWith('\n') ? '\n' : ''}\n${block}\n`);
+  fs.writeFileSync(
+    abs,
+    `${body}${body && !body.endsWith('\n') ? '\n' : ''}\n${block}\n`,
+  );
   return 'added';
 }
 
@@ -326,7 +359,8 @@ function mismatchReason(file, name, entries) {
     // An unparsable range means silence, not a guess: the alternative is crying wolf on
     // every `workspace:*` or git dependency.
     if (major === null || (major >= claim.from && major <= claim.to)) continue;
-    const span = claim.from === claim.to ? `${claim.from}` : `${claim.from}-${claim.to}`;
+    const span =
+      claim.from === claim.to ? `${claim.from}` : `${claim.from}-${claim.to}`;
     out.push(`${name} verified against ${span}, ${where} uses ${major}`);
   }
   return out;
@@ -353,7 +387,8 @@ function latestVersion() {
   } catch {
     cache = null;
   }
-  const age = cache && cache.checkedAt ? Date.now() - cache.checkedAt : Infinity;
+  const age =
+    cache && cache.checkedAt ? Date.now() - cache.checkedAt : Infinity;
   if (age < 7 * DAY) return cache.version || null;
   // A failed lookup is cached for a day too, so an offline machine retries occasionally
   // rather than paying the timeout on every single commit.
@@ -370,7 +405,10 @@ function latestVersion() {
     version = null;
   }
   try {
-    fs.writeFileSync(cacheFile, JSON.stringify({ checkedAt: Date.now(), version }));
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({ checkedAt: Date.now(), version }),
+    );
   } catch {
     // A read-only temp dir costs us the cache, not the check.
   }
@@ -380,10 +418,15 @@ function latestVersion() {
 // Numeric compare of two dotted versions; -1 / 0 / 1. Pre-release tags are ignored,
 // which is right here: a pre-release is not something to nag an installed repo about.
 function compareVersions(a, b) {
-  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  const pa = String(a)
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
+  const pb = String(b)
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
+    if ((pa[i] || 0) !== (pb[i] || 0))
+      return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
   }
   return 0;
 }
@@ -426,7 +469,8 @@ function readLine() {
   }
 }
 
-const decode = (bytes) => Buffer.from(bytes).toString('utf8').replace(/\r$/, '').trim();
+const decode = (bytes) =>
+  Buffer.from(bytes).toString('utf8').replace(/\r$/, '').trim();
 
 function ask(question) {
   // y/N prompt. Returns false on a non-interactive stdin so that automated runs never
@@ -447,7 +491,10 @@ function promptLine(question) {
 
 function slotOf(text, label) {
   const row = text.match(
-    new RegExp(`^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^|]*\\| ([^|]+) \\|$`, 'm'),
+    new RegExp(
+      `^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^|]*\\| ([^|]+) \\|$`,
+      'm',
+    ),
   );
   const v = row && row[1].trim();
   return !v || v.includes('<TODO>') ? null : v.replace(/`/g, '').trim();
@@ -469,10 +516,12 @@ const isNone = (v) => /^none$/i.test(v);
 // the wording in one expression put an optional group next to a lazy one, and the engine
 // simply skipped the wording — every question silently came out as its label.
 function openSlotQuestions(text) {
-  return [...text.matchAll(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm)].map((m) => {
-    const asked = m[2].match(/— ask: \*([^*]+)\*/);
-    return (asked ? asked[1] : m[1]).trim();
-  });
+  return [...text.matchAll(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm)].map(
+    (m) => {
+      const asked = m[2].match(/— ask: \*([^*]+)\*/);
+      return (asked ? asked[1] : m[1]).trim();
+    },
+  );
 }
 
 // The ledger belongs to the project — its language, its wording, its ordering. The only
@@ -530,7 +579,9 @@ function questions(root) {
   }
   const rel = slotOf(read(installed), 'Open questions ledger');
   if (!rel || isNone(rel)) {
-    console.log(c.dim('§12 declares no open-questions ledger — nothing to ask.'));
+    console.log(
+      c.dim('§12 declares no open-questions ledger — nothing to ask.'),
+    );
     return 0;
   }
   const book = readLedger(root, rel);
@@ -544,7 +595,9 @@ function questions(root) {
     return 0;
   }
 
-  console.log(`\n${c.b(`${open.length} open question(s)`)} ${c.dim(`— ${rel}`)}\n`);
+  console.log(
+    `\n${c.b(`${open.length} open question(s)`)} ${c.dim(`— ${rel}`)}\n`,
+  );
   if (!process.stdin.isTTY) {
     // Printing them is still worth it: an agent running this has the questions in
     // context now, which is exactly when it should be raising them.
@@ -557,7 +610,9 @@ function questions(root) {
   const answered = [];
   for (const entry of open) {
     console.log(`  ${c.warn('?')} ${entry.text}`);
-    const answer = promptLine(`  ${c.b('answer')} ${c.dim('(Enter to skip)')} > `);
+    const answer = promptLine(
+      `  ${c.b('answer')} ${c.dim('(Enter to skip)')} > `,
+    );
     if (answer === null) break; // stdin died mid-run; keep what was answered so far
     console.log('');
     if (answer) answered.push({ entry, answer });
@@ -569,7 +624,9 @@ function questions(root) {
 
   // Bottom-up, so an insertion never shifts the line numbers of an entry not yet written.
   const lines = book.lines.slice();
-  for (const { entry, answer } of answered.sort((a, b) => b.entry.start - a.entry.start)) {
+  for (const { entry, answer } of answered.sort(
+    (a, b) => b.entry.start - a.entry.start,
+  )) {
     lines[entry.start] = lines[entry.start].replace(/^- \[[ ~]\]/, '- [x]');
     lines.splice(entry.end + 1, 0, `      — answered ${today}: ${answer}`);
   }
@@ -586,7 +643,8 @@ function detectSlots(root) {
   const slots = {};
   const here = (...p) => path.join(root, ...p);
   const branch = gitBranch(root);
-  if (branch && branch !== 'HEAD') slots['Working branch (§6)'] = `\`${branch}\``;
+  if (branch && branch !== 'HEAD')
+    slots['Working branch (§6)'] = `\`${branch}\``;
 
   if (exists(here(CONTRACTS_DIR, 'README.md')))
     slots['Contract index'] = `\`${CONTRACTS_DIR}/README.md\``;
@@ -596,16 +654,24 @@ function detectSlots(root) {
   // repository already answers.
   const instruction = ANCHOR_TARGETS.filter((f) => exists(here(f)));
   if (instruction.length)
-    slots['Additional project rules'] = instruction.map((f) => `\`${f}\``).join(' · ');
+    slots['Additional project rules'] = instruction
+      .map((f) => `\`${f}\``)
+      .join(' · ');
 
   // Task surface: a conventional folder or file, if one is there.
-  const taskHome = ['dev/tasks', 'tasks', 'TASKS.md', 'docs/tasks'].find((f) => exists(here(f)));
+  const taskHome = ['dev/tasks', 'tasks', 'TASKS.md', 'docs/tasks'].find((f) =>
+    exists(here(f)),
+  );
   if (taskHome) slots['Task surface (§5)'] = `\`${taskHome}\``;
 
   // Where wins are recorded — a file that exists, or an honest "not yet".
-  const wins = ['dev/BRAG.md', 'dev/WINS.md', 'BRAG.md', 'WINS.md', 'dev/HIGHLIGHTS.md'].find(
-    (f) => exists(here(f)),
-  );
+  const wins = [
+    'dev/BRAG.md',
+    'dev/WINS.md',
+    'BRAG.md',
+    'WINS.md',
+    'dev/HIGHLIGHTS.md',
+  ].find((f) => exists(here(f)));
   slots['Where wins are recorded (§8)'] = wins ? `\`${wins}\`` : 'none yet';
 
   // Deployment: look for the machinery. Absence is a real answer, not a gap — many
@@ -620,7 +686,9 @@ function detectSlots(root) {
     'Procfile',
     'render.yaml',
   ].filter((f) => exists(here(f)));
-  if (!deploySigns.length) slots['How a change reaches production (§6)'] = 'none — nothing deploys from this repo';
+  if (!deploySigns.length)
+    slots['How a change reaches production (§6)'] =
+      'none — nothing deploys from this repo';
 
   // Branching model is deliberately NOT inferred. The obvious signal — a single
   // author — does not indicate the model: a solo developer may still work on topic
@@ -636,8 +704,22 @@ function detectSlots(root) {
   // list them hands them a question whose answer is in their own repository — and the
   // answer they give from memory will be the incomplete one.
   const commandDirs = [
-    ['.claude/skills', (d) => fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)],
-    ['.claude/commands', (d) => fs.readdirSync(d).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''))],
+    [
+      '.claude/skills',
+      (d) =>
+        fs
+          .readdirSync(d, { withFileTypes: true })
+          .filter((e) => e.isDirectory())
+          .map((e) => e.name),
+    ],
+    [
+      '.claude/commands',
+      (d) =>
+        fs
+          .readdirSync(d)
+          .filter((f) => f.endsWith('.md'))
+          .map((f) => f.replace(/\.md$/, '')),
+    ],
   ];
   const commands = [];
   for (const [rel, list] of commandDirs) {
@@ -650,7 +732,8 @@ function detectSlots(root) {
     }
   }
   const uniq = [...new Set(commands)].sort();
-  if (uniq.length) slots['Agent commands (§10)'] = uniq.map((n) => `\`/${n}\``).join(' · ');
+  if (uniq.length)
+    slots['Agent commands (§10)'] = uniq.map((n) => `\`/${n}\``).join(' · ');
 
   // Commands: the root's own manifest answers for the whole project when it has one.
   // Otherwise a workspace root carries none while every child repo does, and looking
@@ -667,10 +750,13 @@ function detectSlots(root) {
   } else {
     const children = found.filter((m) => m.rel !== '.');
     const shared = (names) =>
-      names.find((n) => children.filter((m) => (m.pkg.scripts || {})[n]).length >= 2);
+      names.find(
+        (n) => children.filter((m) => (m.pkg.scripts || {})[n]).length >= 2,
+      );
     const health = shared(['validate', 'lint', 'typecheck']);
     const test = shared(['test', 'full-test']);
-    if (health) slots['Health check (§9)'] = `per sub-repo: \`npm run ${health}\``;
+    if (health)
+      slots['Health check (§9)'] = `per sub-repo: \`npm run ${health}\``;
     if (test) slots['Test command'] = `per sub-repo: \`npm run ${test}\``;
   }
   return slots;
@@ -679,10 +765,13 @@ function detectSlots(root) {
 function applySlots(text, slots) {
   // A slot row may carry a hint after the placeholder — match on "contains <TODO>",
   // not on an exact cell, or a hinted row silently stays unfilled.
-  return text.replace(/^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm, (line, slot) => {
-    const key = slot.trim();
-    return slots[key] ? `| ${key} | ${slots[key]} |` : line;
-  });
+  return text.replace(
+    /^\| ([^|]+?) \|([^|]*<TODO>[^|]*)\|$/gm,
+    (line, slot) => {
+      const key = slot.trim();
+      return slots[key] ? `| ${key} | ${slots[key]} |` : line;
+    },
+  );
 }
 
 // ---- init ------------------------------------------------------------------
@@ -719,7 +808,10 @@ function anchorInto(root, results, preferred) {
       continue;
     }
     const prefix = body && !body.endsWith('\n') ? '\n' : '';
-    fs.writeFileSync(abs, `${body}${prefix}${body ? '\n' : ''}> ${ANCHOR_LINE}\n`);
+    fs.writeFileSync(
+      abs,
+      `${body}${prefix}${body ? '\n' : ''}> ${ANCHOR_LINE}\n`,
+    );
     results.push([c.ok('anchored'), file]);
   }
 }
@@ -737,7 +829,10 @@ function wireInto(root, results) {
       pkg.devDependencies = pkg.devDependencies || {};
       if (!pkg.devDependencies[PKG.name]) {
         pkg.devDependencies[PKG.name] = `^${PKG.version}`;
-        results.push([c.ok('added'), `package.json devDependency ${PKG.name}@^${PKG.version}`]);
+        results.push([
+          c.ok('added'),
+          `package.json devDependency ${PKG.name}@^${PKG.version}`,
+        ]);
       } else {
         results.push([c.dim('same'), `package.json devDependency ${PKG.name}`]);
       }
@@ -751,19 +846,28 @@ function wireInto(root, results) {
     } catch (err) {
       // Refuse to guess at a manifest we cannot parse — silently rewriting it would
       // be worse than not wiring at all.
-      results.push([c.warn('skipped'), `package.json is not valid JSON (${err.message})`]);
+      results.push([
+        c.warn('skipped'),
+        `package.json is not valid JSON (${err.message})`,
+      ]);
     }
   }
 
   // A pinned devDependency resolves locally and starts fast; without one the hook has
   // to fetch, so it pins @latest rather than silently running whatever npx cached.
-  const cmd = viaDependency ? 'npx flowpad check' : 'npx -y flowpad@latest check';
+  const cmd = viaDependency
+    ? 'npx flowpad check'
+    : 'npx -y flowpad@latest check';
   let hooksPath = null;
   try {
-    hooksPath = execFileSync('git', ['-C', root, 'config', '--get', 'core.hooksPath'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    hooksPath = execFileSync(
+      'git',
+      ['-C', root, 'config', '--get', 'core.hooksPath'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
   } catch {
     hooksPath = null;
   }
@@ -772,13 +876,19 @@ function wireInto(root, results) {
     ? path.resolve(root, hooksPath.replace(/\/_$/, ''))
     : path.join(root, '.git', 'hooks');
   if (!exists(hookDir)) {
-    results.push([c.warn('skipped'), `no hook directory at ${path.relative(root, hookDir)}`]);
+    results.push([
+      c.warn('skipped'),
+      `no hook directory at ${path.relative(root, hookDir)}`,
+    ]);
     return;
   }
   const hook = path.join(hookDir, 'pre-commit');
   const body = exists(hook) ? read(hook) : '';
   if (body.includes(HOOK_MARK)) {
-    results.push([c.dim('same'), `${path.relative(root, hook)} (already wired)`]);
+    results.push([
+      c.dim('same'),
+      `${path.relative(root, hook)} (already wired)`,
+    ]);
     return;
   }
   const content = body
@@ -786,7 +896,10 @@ function wireInto(root, results) {
     : `#!/bin/sh\n${cmd}\n`;
   fs.writeFileSync(hook, content);
   fs.chmodSync(hook, 0o755);
-  results.push([c.ok(body ? 'wired' : 'created'), `${path.relative(root, hook)} → ${cmd}`]);
+  results.push([
+    c.ok(body ? 'wired' : 'created'),
+    `${path.relative(root, hook)} → ${cmd}`,
+  ]);
 }
 
 // Which instruction files this repository actually has, so the digest lands in the file
@@ -799,7 +912,9 @@ const instructionFiles = (root, preferred) => {
 // Which agent this repository is set up for, when `--agent` was not passed. Detection
 // only ever picks the channel; it never installs anything on its own (§4).
 function detectAgent(root) {
-  const found = Object.entries(AGENT_FILES).find(([, file]) => exists(path.join(root, file)));
+  const found = Object.entries(AGENT_FILES).find(([, file]) =>
+    exists(path.join(root, file)),
+  );
   return found ? found[0] : null;
 }
 
@@ -816,17 +931,26 @@ function wireSession(root, agent, results) {
     const protocolPath = path.join(root, PROTOCOL_FILE);
     const digest = exists(protocolPath) ? digestOf(read(protocolPath)) : null;
     if (!digest) {
-      results.push([c.warn('skipped'), 'session digest — no §0 section in the installed protocol']);
+      results.push([
+        c.warn('skipped'),
+        'session digest — no §0 section in the installed protocol',
+      ]);
       return;
     }
     const targets = instructionFiles(root, AGENT_FILES[chosen]);
     if (!targets.length) {
-      results.push([c.warn('skipped'), 'session digest — no instruction file to write it into']);
+      results.push([
+        c.warn('skipped'),
+        'session digest — no instruction file to write it into',
+      ]);
       return;
     }
     for (const file of targets) {
       const what = writeDigestBlock(root, file, digest);
-      results.push([what === 'same' ? c.dim('same') : c.ok(what), `${file} (§0 digest block)`]);
+      results.push([
+        what === 'same' ? c.dim('same') : c.ok(what),
+        `${file} (§0 digest block)`,
+      ]);
     }
     return;
   }
@@ -838,21 +962,38 @@ function wireSession(root, agent, results) {
       json = JSON.parse(read(abs));
     } catch (err) {
       // Someone else's configuration file: refuse to rewrite what we cannot parse.
-      results.push([c.warn('skipped'), `${settingsRel} is not valid JSON (${err.message})`]);
+      results.push([
+        c.warn('skipped'),
+        `${settingsRel} is not valid JSON (${err.message})`,
+      ]);
       return;
     }
   }
   json.hooks = json.hooks || {};
   json.hooks.SessionStart = json.hooks.SessionStart || [];
-  const registered = json.hooks.SessionStart.flatMap((e) => (e && e.hooks) || []);
-  if (registered.some((h) => String((h && h.command) || '').includes('AGENT-INIT.md'))) {
-    results.push([c.dim('same'), `${settingsRel} (SessionStart already wired)`]);
+  const registered = json.hooks.SessionStart.flatMap(
+    (e) => (e && e.hooks) || [],
+  );
+  if (
+    registered.some((h) =>
+      String((h && h.command) || '').includes('AGENT-INIT.md'),
+    )
+  ) {
+    results.push([
+      c.dim('same'),
+      `${settingsRel} (SessionStart already wired)`,
+    ]);
     return;
   }
-  json.hooks.SessionStart.push({ hooks: [{ type: 'command', command: sessionCommand() }] });
+  json.hooks.SessionStart.push({
+    hooks: [{ type: 'command', command: sessionCommand() }],
+  });
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, `${JSON.stringify(json, null, 2)}\n`);
-  results.push([c.ok('wired'), `${settingsRel} → the protocol loads at every session start`]);
+  results.push([
+    c.ok('wired'),
+    `${settingsRel} → the protocol loads at every session start`,
+  ]);
 }
 
 // Guides are suggested, never installed uninvited (§4) — but a missing one must not be
@@ -866,15 +1007,22 @@ function offerGuides(root, opts = {}) {
   const already = exists(installedDir)
     ? new Set(fs.readdirSync(installedDir).map((f) => f.replace(/\.md$/, '')))
     : new Set();
-  const missing = Object.keys(stacks).filter((s) => available.includes(s) && !already.has(s));
+  const missing = Object.keys(stacks).filter(
+    (s) => available.includes(s) && !already.has(s),
+  );
   if (!missing.length) return;
 
   const cmd = `npx flowpad guide add ${missing.join(' ')}`;
-  if (opts.guides || ask(`\nInstall the ${missing.join(', ')} guide(s) for this repo?`)) {
+  if (
+    opts.guides ||
+    ask(`\nInstall the ${missing.join(', ')} guide(s) for this repo?`)
+  ) {
     guide(root, 'add', missing);
     return;
   }
-  console.log(`\n${c.warn('Guides:')} ${missing.join(', ')} detected but not installed — ${c.b(cmd)}`);
+  console.log(
+    `\n${c.warn('Guides:')} ${missing.join(', ')} detected but not installed — ${c.b(cmd)}`,
+  );
 }
 
 // The same shape as offerGuides, for the same reason: a missing thing must not be
@@ -891,7 +1039,10 @@ function offerSession(root, agent, opts = {}) {
   // by `update` itself, not re-offered.
   if (sessionStatus(root, read(protocolPath))[0] !== 'INFO') return;
 
-  if (opts.wire || ask('\nLoad the protocol at every session start (§10 step 2)?')) {
+  if (
+    opts.wire ||
+    ask('\nLoad the protocol at every session start (§10 step 2)?')
+  ) {
     const results = [];
     wireSession(root, agent, results);
     for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
@@ -919,7 +1070,10 @@ function offerTaskSurface(root, opts = {}) {
   if (readOffers(root).taskSurface) return; // already asked once
 
   const accepted =
-    opts.tasks || ask('\nTrack this repo\'s tasks in FlowPad? (a canvas board an agent can read and write)');
+    opts.tasks ||
+    ask(
+      "\nTrack this repo's tasks in FlowPad? (a canvas board an agent can read and write)",
+    );
   if (!process.stdin.isTTY && !opts.tasks) {
     // No human was there to answer, so nothing was declined. Print, do not record — a
     // scripted install must never spend the one question a human has not seen yet.
@@ -931,13 +1085,22 @@ function offerTaskSurface(root, opts = {}) {
   recordOffer(root, 'taskSurface', accepted ? 'accepted' : 'declined');
   if (!accepted) return; // "no" closes it, silently and for good
 
-  fs.writeFileSync(protocolPath, applySlots(body, { 'Task surface (§5)': 'FlowPad — `npx flowpad-mcp`' }));
+  fs.writeFileSync(
+    protocolPath,
+    applySlots(body, { 'Task surface (§5)': 'FlowPad — `npx flowpad-mcp`' }),
+  );
   // Filling a slot changes the installed file, so the lock's hash of it is now stale —
   // and a stale hash reads as "the user edited this", which makes `update` protect an
   // edit nobody made. Re-record here rather than at every call site.
   const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
-  if (exists(lockPath)) fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
-  console.log(`  ${c.ok('set')}  §12 Task surface → FlowPad · set it up with ${c.b('npx flowpad-mcp')}`);
+  if (exists(lockPath))
+    fs.writeFileSync(
+      lockPath,
+      `${JSON.stringify(lockRecord(root), null, 2)}\n`,
+    );
+  console.log(
+    `  ${c.ok('set')}  §12 Task surface → FlowPad · set it up with ${c.b('npx flowpad-mcp')}`,
+  );
 }
 
 // §10 step 4: the reflexes that turn "intent only" rows in §9 into something
@@ -946,9 +1109,12 @@ function offerTaskSurface(root, opts = {}) {
 const REFLEXES = {
   claude:
     'a slash command for the commit flow + health check, a Stop hook for §8, and permissions in .claude/settings.json for §4',
-  codex: 'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
-  cursor: 'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
-  gemini: 'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
+  codex:
+    'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
+  cursor:
+    'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
+  gemini:
+    'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
 };
 
 function init(root, force, opts = {}) {
@@ -996,7 +1162,10 @@ function init(root, force, opts = {}) {
   offerTaskSurface(root, opts);
 
   const reflex = REFLEXES[opts.agent];
-  if (reflex) console.log(`\n${c.dim(`Reflexes (§10 step 4) — ${opts.agent}: ${reflex}`)}`);
+  if (reflex)
+    console.log(
+      `\n${c.dim(`Reflexes (§10 step 4) — ${opts.agent}: ${reflex}`)}`,
+    );
 
   const open = openSlotQuestions(installed);
   if (!open.length) {
@@ -1032,28 +1201,50 @@ function sessionStatus(root, protocol) {
     } catch {
       continue;
     }
-    const registered = ((json.hooks || {}).SessionStart || []).flatMap((e) => (e && e.hooks) || []);
-    const hit = registered.find((h) => String((h && h.command) || '').includes('AGENT-INIT.md'));
+    const registered = ((json.hooks || {}).SessionStart || []).flatMap(
+      (e) => (e && e.hooks) || [],
+    );
+    const hit = registered.find((h) =>
+      String((h && h.command) || '').includes('AGENT-INIT.md'),
+    );
     if (!hit) continue;
     // A command that no longer matches what this version writes still counts as wired —
     // the user is allowed to adapt it — but the drift is worth naming, because the awk
     // range and the protocol's section numbering have to agree for it to print anything.
     return hit.command === sessionCommand()
-      ? ['PASS', 'session', `${agent}: SessionStart hook — the protocol loads every session`]
-      : ['WARN', 'session', `${agent}: SessionStart hook is wired but was edited — verify it still prints §0`];
+      ? [
+          'PASS',
+          'session',
+          `${agent}: SessionStart hook — the protocol loads every session`,
+        ]
+      : [
+          'WARN',
+          'session',
+          `${agent}: SessionStart hook is wired but was edited — verify it still prints §0`,
+        ];
   }
 
   const digest = digestOf(protocol);
   const carriers = ANCHOR_TARGETS.filter(
-    (f) => exists(path.join(root, f)) && read(path.join(root, f)).includes(DIGEST_START),
+    (f) =>
+      exists(path.join(root, f)) &&
+      read(path.join(root, f)).includes(DIGEST_START),
   );
   if (carriers.length) {
     const stale = digest
       ? carriers.filter((f) => !read(path.join(root, f)).includes(digest))
       : [];
     return stale.length
-      ? ['WARN', 'session', `§0 digest block in ${stale.join(', ')} no longer matches the protocol — run \`npx flowpad update\``]
-      : ['PASS', 'session', `§0 digest block in ${carriers.join(', ')}, current`];
+      ? [
+          'WARN',
+          'session',
+          `§0 digest block in ${stale.join(', ')} no longer matches the protocol — run \`npx flowpad update\``,
+        ]
+      : [
+          'PASS',
+          'session',
+          `§0 digest block in ${carriers.join(', ')}, current`,
+        ];
   }
 
   return [
@@ -1075,7 +1266,11 @@ function check(root) {
   const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
 
   if (!exists(installed)) {
-    add('FAIL', 'protocol', `${PROTOCOL_FILE} is missing — run \`npx flowpad init\``);
+    add(
+      'FAIL',
+      'protocol',
+      `${PROTOCOL_FILE} is missing — run \`npx flowpad init\``,
+    );
     report(rows);
     return 1;
   }
@@ -1084,7 +1279,9 @@ function check(root) {
 
   // 1. anchor — without it no agent ever reads any of this
   const anchored = ANCHOR_TARGETS.filter(
-    (f) => exists(path.join(root, f)) && read(path.join(root, f)).includes(ANCHOR_MARK),
+    (f) =>
+      exists(path.join(root, f)) &&
+      read(path.join(root, f)).includes(ANCHOR_MARK),
   );
   anchored.length
     ? add('PASS', 'anchor', anchored.join(', '))
@@ -1094,11 +1291,24 @@ function check(root) {
   const lock = exists(lockPath) ? JSON.parse(read(lockPath)) : null;
   const localV = protocolVersion(local);
   const upstreamV = protocolVersion(upstream);
-  if (!lock) add('WARN', 'lock', `${LOCK} missing — cannot tell edits from upstream changes`);
+  if (!lock)
+    add(
+      'WARN',
+      'lock',
+      `${LOCK} missing — cannot tell edits from upstream changes`,
+    );
   else if (!exists(path.join(root, PROTOCOL_DIR, BASE)))
-    add('WARN', 'baseline', `${BASE} missing — \`update\` cannot show what it would drop`);
+    add(
+      'WARN',
+      'baseline',
+      `${BASE} missing — \`update\` cannot show what it would drop`,
+    );
   else if (localV !== upstreamV)
-    add('WARN', 'version', `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\`, then re-read it`);
+    add(
+      'WARN',
+      'version',
+      `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\`, then re-read it`,
+    );
   else if (
     lock.files &&
     lock.files[PROTOCOL_FILE] &&
@@ -1108,7 +1318,11 @@ function check(root) {
     // The declared version is hand-maintained and was, in practice, forgotten while
     // the body changed across several releases. The recorded upstream hash cannot be
     // forgotten, so drift is detected from it and the version is only a label.
-    add('WARN', 'version', `v${localV} body has moved on upstream — run \`npx flowpad update\`, then re-read it`);
+    add(
+      'WARN',
+      'version',
+      `v${localV} body has moved on upstream — run \`npx flowpad update\`, then re-read it`,
+    );
   } else {
     const entry = (lock.files || {})[PROTOCOL_FILE];
     const installedSha = entry && (entry.installed || entry);
@@ -1162,7 +1376,11 @@ function check(root) {
       const waiting = openQuestions.length - unasked;
       const tail = waiting ? `, ${waiting} awaiting an answer` : '';
       unasked
-        ? add('WARN', 'questions', `${unasked} question(s) written down but never asked${tail}`)
+        ? add(
+            'WARN',
+            'questions',
+            `${unasked} question(s) written down but never asked${tail}`,
+          )
         : add('PASS', 'questions', `nothing unasked${tail}`);
     }
   }
@@ -1172,7 +1390,9 @@ function check(root) {
     // Written as the human types them (`/publish`), resolved per agent. Only Claude's
     // layout is known here; for anything else a declared command is taken on trust
     // rather than guessed at and wrongly failed.
-    const named = [...commands.matchAll(/\/([a-z0-9][\w-]*)/gi)].map((m) => m[1]);
+    const named = [...commands.matchAll(/\/([a-z0-9][\w-]*)/gi)].map(
+      (m) => m[1],
+    );
     const home = require('os').homedir();
     const found = (n) =>
       [
@@ -1184,7 +1404,11 @@ function check(root) {
     const missing = named.filter((n) => !found(n));
     if (!named.length) add('PASS', 'commands', commands);
     else if (missing.length)
-      add('FAIL', 'commands', `declared in §12 but not installed: ${missing.map((n) => `/${n}`).join(', ')}`);
+      add(
+        'FAIL',
+        'commands',
+        `declared in §12 but not installed: ${missing.map((n) => `/${n}`).join(', ')}`,
+      );
     else add('PASS', 'commands', `${named.length} declared, all installed`);
   }
 
@@ -1193,7 +1417,11 @@ function check(root) {
   const cdir = path.join(root, CONTRACTS_DIR);
   const index = path.join(cdir, 'README.md');
   if (!exists(index)) {
-    add('WARN', 'contracts', `${CONTRACTS_DIR}/README.md missing — no index to scan`);
+    add(
+      'WARN',
+      'contracts',
+      `${CONTRACTS_DIR}/README.md missing — no index to scan`,
+    );
   } else {
     const body = read(index);
     // Links are resolved relative to the index. An index may legitimately point
@@ -1207,23 +1435,35 @@ function check(root) {
     );
     const onDisk = fs
       .readdirSync(cdir)
-      .filter((f) => f.endsWith('.md') && f !== 'README.md' && !f.startsWith('_'));
+      .filter(
+        (f) => f.endsWith('.md') && f !== 'README.md' && !f.startsWith('_'),
+      );
     const orphans = onDisk.filter((f) => !linkedLocal.has(f));
     const dead = linked.filter((h) => !exists(path.resolve(cdir, h)));
-    if (orphans.length) add('FAIL', 'contracts', `not in the index: ${orphans.join(', ')}`);
-    if (dead.length) add('FAIL', 'contracts', `indexed but missing: ${dead.join(', ')}`);
+    if (orphans.length)
+      add('FAIL', 'contracts', `not in the index: ${orphans.join(', ')}`);
+    if (dead.length)
+      add('FAIL', 'contracts', `indexed but missing: ${dead.join(', ')}`);
     if (!orphans.length && !dead.length)
-      add('PASS', 'contracts', `${onDisk.length} contract(s), index consistent`);
+      add(
+        'PASS',
+        'contracts',
+        `${onDisk.length} contract(s), index consistent`,
+      );
   }
 
   // 5. commit gate — §3's story: the hook files existed, the hook path did not.
   //    Checking that the guard is registered, not that its files are present.
   let hooksPath = null;
   try {
-    hooksPath = execFileSync('git', ['-C', root, 'config', '--get', 'core.hooksPath'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    hooksPath = execFileSync(
+      'git',
+      ['-C', root, 'config', '--get', 'core.hooksPath'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
   } catch {
     hooksPath = null;
   }
@@ -1231,7 +1471,12 @@ function check(root) {
   const hasDefaultHook = exists(path.join(defaultHooks, 'pre-commit'));
   if (hooksPath) add('PASS', 'commit-gate', `core.hooksPath = ${hooksPath}`);
   else if (hasDefaultHook) add('PASS', 'commit-gate', '.git/hooks/pre-commit');
-  else add('WARN', 'commit-gate', 'no pre-commit hook registered — §6 is unguarded');
+  else
+    add(
+      'WARN',
+      'commit-gate',
+      'no pre-commit hook registered — §6 is unguarded',
+    );
 
   // 6. guides — two failure modes, and the first one used to be invisible. A stale
   //    guide is dangerous because an agent applies it with full confidence; a *missing*
@@ -1239,7 +1484,9 @@ function check(root) {
   //    This row is emitted unconditionally: an empty guides folder was previously no
   //    row, which read as "nothing to report" when it meant "nothing is installed".
   const gdir = path.join(root, GUIDES_DIR);
-  const files = exists(gdir) ? fs.readdirSync(gdir).filter((x) => x.endsWith('.md')) : [];
+  const files = exists(gdir)
+    ? fs.readdirSync(gdir).filter((x) => x.endsWith('.md'))
+    : [];
   const installedGuides = new Set(files.map((f) => f.replace(/\.md$/, '')));
   const available = availableGuides();
   const stacks = detectStacks(root);
@@ -1253,21 +1500,33 @@ function check(root) {
   stale.push(...staleReason(path.join(root, PRINCIPLES), 'principles'));
   const missing = Object.entries(stacks)
     .filter(([s]) => available.includes(s) && !installedGuides.has(s))
-    .map(([s, entries]) => `${s} (detected in ${placesOf(entries).join(', ')})`);
+    .map(
+      ([s, entries]) => `${s} (detected in ${placesOf(entries).join(', ')})`,
+    );
 
   if (!exists(path.join(root, PRINCIPLES)))
-    add('WARN', 'principles', `${PRINCIPLES} missing — run \`npx flowpad update\``);
+    add(
+      'WARN',
+      'principles',
+      `${PRINCIPLES} missing — run \`npx flowpad update\``,
+    );
 
   if (missing.length) {
     const names = missing.map((m) => m.split(' ')[0]).join(' ');
-    add('WARN', 'guides', `not installed: ${missing.join(', ')} — \`npx flowpad guide add ${names}\``);
+    add(
+      'WARN',
+      'guides',
+      `not installed: ${missing.join(', ')} — \`npx flowpad guide add ${names}\``,
+    );
   }
   if (stale.length) add('WARN', 'guides', `review needed: ${stale.join(', ')}`);
   if (!missing.length && !stale.length)
     add(
       'PASS',
       'guides',
-      files.length ? `${files.length} guide(s), all reviewed recently` : 'no known stack detected',
+      files.length
+        ? `${files.length} guide(s), all reviewed recently`
+        : 'no known stack detected',
     );
 
   // 7. the session channel — is the protocol loaded, or only pointed at? Absence is
@@ -1296,7 +1555,9 @@ function check(root) {
   if (openQuestions.length) {
     console.log(`\n${c.b('Open questions')} ${c.dim(`— ${ledger}`)}`);
     for (const e of openQuestions.slice(0, 10))
-      console.log(`  ${e.mark === '~' ? c.dim('~') : c.warn('?')} ${oneLine(e.text)}`);
+      console.log(
+        `  ${e.mark === '~' ? c.dim('~') : c.warn('?')} ${oneLine(e.text)}`,
+      );
     if (openQuestions.length > 10)
       console.log(c.dim(`  … and ${openQuestions.length - 10} more`));
     console.log(c.dim(`  Answer them: npx ${PKG.name} questions`));
@@ -1326,9 +1587,13 @@ function report(rows) {
   // passed" while something is missing is the failure this check exists to prevent —
   // the amber rows above it get skimmed past, and the missing thing stays missing.
   if (fails)
-    console.log(`\n${c.bad(`${fails} failure(s)`)}${warns ? `, ${warns} warning(s)` : ''}`);
+    console.log(
+      `\n${c.bad(`${fails} failure(s)`)}${warns ? `, ${warns} warning(s)` : ''}`,
+    );
   else if (warns)
-    console.log(`\n${c.warn(`${warns} warning(s)`)} ${c.dim('— nothing failed, but the setup is incomplete.')}`);
+    console.log(
+      `\n${c.warn(`${warns} warning(s)`)} ${c.dim('— nothing failed, but the setup is incomplete.')}`,
+    );
   else console.log(`\n${c.ok('All checks passed.')}`);
 }
 
@@ -1355,7 +1620,9 @@ function syncSidecars(root, force, lock) {
     const recorded = ((lock && lock.files) || {})[file.dest];
     const edited = recorded ? recorded.installed !== sha(local) : true;
     if (edited && !force) {
-      console.log(`  ${c.warn('local edits')}  ${file.dest} — it is upstream's file (§11).`);
+      console.log(
+        `  ${c.warn('local edits')}  ${file.dest} — it is upstream's file (§11).`,
+      );
       if (!ask('  Overwrite?')) {
         console.log(c.dim('  Kept.'));
         continue;
@@ -1424,7 +1691,11 @@ function lockRecord(root) {
   const files = {};
   for (const file of MANAGED) {
     const abs = path.join(root, file.dest);
-    if (exists(abs)) files[file.dest] = { installed: sha(read(abs)), upstream: sha(read(file.src)) };
+    if (exists(abs))
+      files[file.dest] = {
+        installed: sha(read(abs)),
+        upstream: sha(read(file.src)),
+      };
   }
   const protocol = path.join(root, PROTOCOL_FILE);
   return {
@@ -1435,7 +1706,9 @@ function lockRecord(root) {
     // Answers to one-time offers, carried across every rewrite of this file. Losing one
     // does not corrupt an install — it re-asks a question that was already answered,
     // which is how an offer turns into nagging.
-    ...(Object.keys(readOffers(root)).length ? { offers: readOffers(root) } : {}),
+    ...(Object.keys(readOffers(root)).length
+      ? { offers: readOffers(root) }
+      : {}),
   };
 }
 
@@ -1470,10 +1743,16 @@ function updateProtocol(root, force) {
   // from, so it gets the same re-read notice as the protocol itself.
   const changedSidecars = syncSidecars(root, force, lock);
   if (changedSidecars.length)
-    console.log(c.warn('  Re-read'), `${changedSidecars.join(', ')} — it changed just now.`);
+    console.log(
+      c.warn('  Re-read'),
+      `${changedSidecars.join(', ')} — it changed just now.`,
+    );
 
   if (local === upstream) {
-    fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
+    fs.writeFileSync(
+      lockPath,
+      `${JSON.stringify(lockRecord(root), null, 2)}\n`,
+    );
     refreshDigestBlocks(root);
     console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
     return 0;
@@ -1483,7 +1762,10 @@ function updateProtocol(root, force) {
   // whole reason this command can be safe to run.
   const slots = {};
   for (const m of local.matchAll(/^\| ([^|]+?) \| (?!`<TODO>`)([^|]+) \|$/gm)) {
-    const row = new RegExp(`^\\| ${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`, 'm');
+    const row = new RegExp(
+      `^\\| ${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`,
+      'm',
+    );
     if (row.test(upstream)) slots[m[1].trim()] = m[2].trim();
   }
   // Detection improves between releases; an install made before it did should benefit
@@ -1497,11 +1779,17 @@ function updateProtocol(root, force) {
     // Seeding it here is safe precisely because the file is already current.
     if (!exists(basePath)) {
       fs.writeFileSync(basePath, upstream);
-      console.log(c.ok('Already current.'), `v${protocolVersion(local)} — baseline copy added.`);
+      console.log(
+        c.ok('Already current.'),
+        `v${protocolVersion(local)} — baseline copy added.`,
+      );
     } else {
       console.log(c.ok('Already current.'), `v${protocolVersion(local)}`);
     }
-    fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
+    fs.writeFileSync(
+      lockPath,
+      `${JSON.stringify(lockRecord(root), null, 2)}\n`,
+    );
     refreshDigestBlocks(root);
     return 0;
   }
@@ -1521,7 +1809,9 @@ function updateProtocol(root, force) {
       `${c.warn('Local edits detected')} in ${PROTOCOL_FILE} ` +
         `(v${protocolVersion(local)} → v${protocolVersion(upstream)}).`,
     );
-    console.log(`  ${c.ok(`${Object.keys(slots).length} §12 slot(s)`)} will be carried over.`);
+    console.log(
+      `  ${c.ok(`${Object.keys(slots).length} §12 slot(s)`)} will be carried over.`,
+    );
     if (lost === null) {
       console.log(
         `  ${c.warn('No baseline copy')} (${BASE} is missing) — cannot show what else changed.`,
@@ -1529,10 +1819,17 @@ function updateProtocol(root, force) {
     } else if (!lost.length) {
       console.log(`  ${c.dim('Nothing else was changed locally.')}`);
     } else {
-      console.log(`  ${c.bad(`${lost.length} line(s) you added will be lost:`)}`);
+      console.log(
+        `  ${c.bad(`${lost.length} line(s) you added will be lost:`)}`,
+      );
       for (const line of lost.slice(0, 20)) console.log(c.bad(`    - ${line}`));
-      if (lost.length > 20) console.log(c.dim(`    … and ${lost.length - 20} more`));
-      console.log(c.dim('    (project-specific text belongs in §12 or your instruction file)'));
+      if (lost.length > 20)
+        console.log(c.dim(`    … and ${lost.length - 20} more`));
+      console.log(
+        c.dim(
+          '    (project-specific text belongs in §12 or your instruction file)',
+        ),
+      );
     }
     if (!force && !ask('  Overwrite?')) {
       console.log(c.dim('  Cancelled. Nothing was written.'));
@@ -1544,7 +1841,10 @@ function updateProtocol(root, force) {
   fs.writeFileSync(lockPath, `${JSON.stringify(lockRecord(root), null, 2)}\n`);
   fs.writeFileSync(path.join(root, PROTOCOL_DIR, BASE), upstream);
   refreshDigestBlocks(root);
-  console.log(c.ok('Updated.'), `v${protocolVersion(upstream)} — ${Object.keys(slots).length} slot(s) preserved.`);
+  console.log(
+    c.ok('Updated.'),
+    `v${protocolVersion(upstream)} — ${Object.keys(slots).length} slot(s) preserved.`,
+  );
   // Whoever ran this is usually an agent mid-session, holding the version that was on
   // disk when the session opened. The session channel only fires at session start, so
   // without this line the rest of the session runs on the protocol that was just
@@ -1562,7 +1862,10 @@ function guide(root, sub, names) {
   const all = availableGuides();
   const installedDir = path.join(root, GUIDES_DIR);
   const installed = exists(installedDir)
-    ? fs.readdirSync(installedDir).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''))
+    ? fs
+        .readdirSync(installedDir)
+        .filter((f) => f.endsWith('.md'))
+        .map((f) => f.replace(/\.md$/, ''))
     : [];
 
   const stacks = detectStacks(root);
@@ -1570,8 +1873,13 @@ function guide(root, sub, names) {
     for (const name of all) {
       const where = stacks[name];
       // Pad before colouring — escape codes have width in a string but not on screen.
-      const word = installed.includes(name) ? 'installed' : where ? 'suggested' : 'available';
-      const paint = word === 'installed' ? c.ok : word === 'suggested' ? c.warn : c.dim;
+      const word = installed.includes(name)
+        ? 'installed'
+        : where
+          ? 'suggested'
+          : 'available';
+      const paint =
+        word === 'installed' ? c.ok : word === 'suggested' ? c.warn : c.dim;
       console.log(
         `  ${paint(word.padEnd(10))}  ${name}${where ? c.dim(`  (detected in ${placesOf(where).join(', ')})`) : ''}`,
       );
@@ -1622,12 +1930,19 @@ function context(root) {
   if (!digest) return 0;
 
   const gdir = path.join(root, GUIDES_DIR);
-  const guides = exists(gdir) ? fs.readdirSync(gdir).filter((f) => f.endsWith('.md')) : [];
-  const pointers = [`full text: ${PROTOCOL_FILE}`, `coding principles: ${PRINCIPLES}`];
+  const guides = exists(gdir)
+    ? fs.readdirSync(gdir).filter((f) => f.endsWith('.md'))
+    : [];
+  const pointers = [
+    `full text: ${PROTOCOL_FILE}`,
+    `coding principles: ${PRINCIPLES}`,
+  ];
   if (exists(path.join(root, CONTRACTS_DIR, 'README.md')))
     pointers.push(`contract index: ${CONTRACTS_DIR}/README.md`);
   if (guides.length)
-    pointers.push(`stack guides: ${guides.map((f) => `${GUIDES_DIR}/${f}`).join(', ')}`);
+    pointers.push(
+      `stack guides: ${guides.map((f) => `${GUIDES_DIR}/${f}`).join(', ')}`,
+    );
 
   console.log(`Working protocol for this repository — ${pointers.join(' · ')}`);
   console.log(`\n${digest}`);
@@ -1663,9 +1978,13 @@ const positional = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const [cmd, ...rest] = positional;
 const force = process.argv.includes('--force');
 const agentArg = process.argv.find((a) => a.startsWith('--agent='));
-const agentName = agentArg ? agentArg.slice('--agent='.length).toLowerCase() : undefined;
+const agentName = agentArg
+  ? agentArg.slice('--agent='.length).toLowerCase()
+  : undefined;
 if (agentName && !AGENT_FILES[agentName]) {
-  console.error(`Unknown agent: ${agentName}. Known: ${Object.keys(AGENT_FILES).join(', ')}`);
+  console.error(
+    `Unknown agent: ${agentName}. Known: ${Object.keys(AGENT_FILES).join(', ')}`,
+  );
   process.exit(1);
 }
 const anchor = agentName ? AGENT_FILES[agentName] : undefined;

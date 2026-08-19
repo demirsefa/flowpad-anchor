@@ -16,9 +16,8 @@ const { execFileSync } = require('node:child_process');
 const CLI = path.join(__dirname, '..', 'bin', 'flowpad.js');
 
 // The registry probe is the one non-deterministic thing in `check`; every test opts out.
-const ENV = { ...process.env, FLOWPAD_NO_NETWORK: '1' };
-
-const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+// NO_COLOR keeps the output plain so assertions can match text, not escape codes.
+const ENV = { ...process.env, FLOWPAD_NO_NETWORK: '1', NO_COLOR: '1' };
 
 function repo(manifests = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
@@ -35,17 +34,25 @@ function run(dir, args, opts = {}) {
   try {
     return {
       code: 0,
-      out: strip(execFileSync(process.execPath, [CLI, ...args], { cwd: dir, encoding: 'utf8', env: ENV })),
+      out: execFileSync(process.execPath, [CLI, ...args], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: ENV,
+      }),
     };
   } catch (err) {
     // A non-zero exit is a result here, not a crash: `check` exits 1 by design.
     if (opts.mustPass) throw err;
-    return { code: err.status, out: strip(`${err.stdout || ''}${err.stderr || ''}`) };
+    return { code: err.status, out: `${err.stdout || ''}${err.stderr || ''}` };
   }
 }
 
 const line = (out, name) =>
-  out.split('\n').find((l) => new RegExp(`^\\s+(PASS|WARN|FAIL|INFO)\\s+${name}\\b`).test(l)) || '';
+  out
+    .split('\n')
+    .find((l) =>
+      new RegExp(`^\\s+(PASS|WARN|FAIL|INFO)\\s+${name}\\b`).test(l),
+    ) || '';
 
 test('detects a stack from child repositories when the root has no manifest', () => {
   const dir = repo({
@@ -67,14 +74,18 @@ test('a repository with no guides installed reports a guides row at all', () => 
 });
 
 test('installing the detected guides clears the warning', () => {
-  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^19.0.0' } } });
+  const dir = repo({
+    'package.json': { name: 'app', dependencies: { react: '^19.0.0' } },
+  });
   run(dir, ['init', '--agent=claude']);
   run(dir, ['guide', 'add', 'react']);
   assert.match(line(run(dir, ['check']).out, 'guides'), /PASS/);
 });
 
 test('a guide verified against another major is flagged even when freshly reviewed', () => {
-  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^30.0.0' } } });
+  const dir = repo({
+    'package.json': { name: 'app', dependencies: { react: '^30.0.0' } },
+  });
   run(dir, ['init', '--agent=claude', '--guides']);
   const { out } = run(dir, ['check']);
   assert.match(line(out, 'guides'), /WARN/);
@@ -82,7 +93,9 @@ test('a guide verified against another major is flagged even when freshly review
 });
 
 test('the summary is not green while anything is still amber', () => {
-  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^18.0.0' } } });
+  const dir = repo({
+    'package.json': { name: 'app', dependencies: { react: '^18.0.0' } },
+  });
   run(dir, ['init', '--agent=claude']);
   const { out } = run(dir, ['check']);
   assert.match(out, /warning\(s\).*setup is incomplete/);
@@ -94,7 +107,9 @@ test('init installs both managed files and records both in the lock', () => {
   run(dir, ['init', '--agent=claude'], { mustPass: true });
   assert.ok(fs.existsSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md')));
   assert.ok(fs.existsSync(path.join(dir, 'dev/flowpad/PRINCIPLES.md')));
-  const lock = JSON.parse(fs.readFileSync(path.join(dir, 'dev/flowpad/.flowpad-lock.json'), 'utf8'));
+  const lock = JSON.parse(
+    fs.readFileSync(path.join(dir, 'dev/flowpad/.flowpad-lock.json'), 'utf8'),
+  );
   assert.deepStrictEqual(Object.keys(lock.files).sort(), [
     'dev/flowpad/AGENT-INIT.md',
     'dev/flowpad/PRINCIPLES.md',
@@ -126,12 +141,18 @@ test('update carries the project settings across a protocol change', () => {
   const file = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
   const filled = fs
     .readFileSync(file, 'utf8')
-    .replace('| Branching model (§6) | `<TODO>`', '| Branching model (§6) | solo')
+    .replace(
+      '| Branching model (§6) | `<TODO>`',
+      '| Branching model (§6) | solo',
+    )
     // Rewind the version so `update` treats this as an older install with real content.
     .replace(/^version: \d+/m, 'version: 1');
   fs.writeFileSync(file, filled);
   run(dir, ['update', '--force']);
-  assert.match(fs.readFileSync(file, 'utf8'), /\| Branching model \(§6\) \| solo/);
+  assert.match(
+    fs.readFileSync(file, 'utf8'),
+    /\| Branching model \(§6\) \| solo/,
+  );
 });
 
 test('check fails, not warns, when nothing points at the protocol', () => {
@@ -153,11 +174,16 @@ test('stray indentation before the frontmatter does not disable a guide check', 
   // Found in a real repository: two spaces in front of `---` silently turned off both
   // the staleness and the version-mismatch check, and the row read "no last-reviewed
   // date" — a guard that stopped guarding, reported as a guide nobody had dated.
-  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^30.0.0' } } });
+  const dir = repo({
+    'package.json': { name: 'app', dependencies: { react: '^30.0.0' } },
+  });
   run(dir, ['init', '--agent=claude', '--guides']);
   const guide = path.join(dir, 'dev/flowpad/guides/react.md');
   fs.writeFileSync(guide, `  ${fs.readFileSync(guide, 'utf8')}`);
-  assert.match(line(run(dir, ['check']).out, 'guides'), /verified against 18-19.*uses 30/);
+  assert.match(
+    line(run(dir, ['check']).out, 'guides'),
+    /verified against 18-19.*uses 30/,
+  );
 });
 
 test('the registered session hook actually prints the digest when run', () => {
@@ -166,9 +192,14 @@ test('the registered session hook actually prints the digest when run', () => {
   // fails silently at session start — printing nothing looks exactly like working.
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude', '--wire']);
-  const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'));
+  const settings = JSON.parse(
+    fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'),
+  );
   const [{ command }] = settings.hooks.SessionStart[0].hooks;
-  const out = execFileSync('sh', ['-c', command], { cwd: dir, encoding: 'utf8' });
+  const out = execFileSync('sh', ['-c', command], {
+    cwd: dir,
+    encoding: 'utf8',
+  });
   assert.match(out, /## 0\. Digest/);
   assert.match(out, /A rule is anchored \+ enforced/);
   // The range must stop at §1, or every session pays for the whole document.
@@ -184,12 +215,16 @@ test('wiring keeps the settings a repository already had', () => {
     JSON.stringify({ permissions: { deny: ['Bash(git stash:*)'] } }),
   );
   run(dir, ['wire-session', '--agent=claude']);
-  const settings = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'));
+  const settings = JSON.parse(
+    fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'),
+  );
   assert.deepStrictEqual(settings.permissions.deny, ['Bash(git stash:*)']);
   assert.strictEqual(settings.hooks.SessionStart.length, 1);
   // Wiring twice must not stack a second copy of the same hook.
   run(dir, ['wire-session', '--agent=claude']);
-  const again = JSON.parse(fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'));
+  const again = JSON.parse(
+    fs.readFileSync(path.join(dir, '.claude/settings.json'), 'utf8'),
+  );
   assert.strictEqual(again.hooks.SessionStart.length, 1);
 });
 
@@ -208,7 +243,10 @@ test('a digest block that drifts from the protocol goes amber, and update repair
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=cursor', '--wire']);
   const rules = path.join(dir, '.cursorrules');
-  fs.writeFileSync(rules, fs.readFileSync(rules, 'utf8').replace('## 0. Digest', '## 0. Stale'));
+  fs.writeFileSync(
+    rules,
+    fs.readFileSync(rules, 'utf8').replace('## 0. Digest', '## 0. Stale'),
+  );
   assert.match(line(run(dir, ['check']).out, 'session'), /WARN/);
   run(dir, ['update']);
   assert.match(line(run(dir, ['check']).out, 'session'), /PASS/);
@@ -218,7 +256,10 @@ test('update never grows a digest block in a repository that declined one', () =
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
   run(dir, ['update']);
-  assert.doesNotMatch(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), /flowpad:digest/);
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'),
+    /flowpad:digest/,
+  );
 });
 
 test('update tells the reader to re-read what it just replaced', () => {
@@ -245,7 +286,10 @@ test('update offers the session channel, and prints the command when it cannot a
 test('update stops offering once the channel is wired', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude', '--wire']);
-  assert.doesNotMatch(run(dir, ['update'], { mustPass: true }).out, /wire-session/);
+  assert.doesNotMatch(
+    run(dir, ['update'], { mustPass: true }).out,
+    /wire-session/,
+  );
 });
 
 test('an unwired session channel is reported, but is not a warning', () => {
@@ -258,7 +302,10 @@ test('an unwired session channel is reported, but is not a warning', () => {
   assert.match(out, /wire-session/);
 });
 
-const lockOf = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'dev/flowpad/.flowpad-lock.json'), 'utf8'));
+const lockOf = (dir) =>
+  JSON.parse(
+    fs.readFileSync(path.join(dir, 'dev/flowpad/.flowpad-lock.json'), 'utf8'),
+  );
 const slotRow = (dir) =>
   fs
     .readFileSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md'), 'utf8')
@@ -283,14 +330,20 @@ test('accepting the task-surface offer fills the slot and is never asked again',
   assert.strictEqual(lockOf(dir).offers.taskSurface, 'accepted');
   // The lock must still describe the file that is now on disk. Filling a slot rewrites
   // the protocol, and a stale hash would make `update` defend an edit nobody made.
-  assert.doesNotMatch(run(dir, ['update'], { mustPass: true }).out, /edited|Overwrite/i);
+  assert.doesNotMatch(
+    run(dir, ['update'], { mustPass: true }).out,
+    /edited|Overwrite/i,
+  );
 });
 
 test('a declined task surface closes the question for good', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude'], { mustPass: true });
   const lockPath = path.join(dir, 'dev/flowpad/.flowpad-lock.json');
-  fs.writeFileSync(lockPath, JSON.stringify({ ...lockOf(dir), offers: { taskSurface: 'declined' } }));
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ ...lockOf(dir), offers: { taskSurface: 'declined' } }),
+  );
   const { out } = run(dir, ['update'], { mustPass: true });
   assert.doesNotMatch(out, /flowpad-mcp/);
   // A refusal is not a project setting: it says nothing about where tasks actually live,
@@ -316,7 +369,9 @@ test('context is silent and succeeds where nothing is installed', () => {
 });
 
 test('context names the guides and the contract index it can see', () => {
-  const dir = repo({ 'package.json': { name: 'app', dependencies: { react: '^19.0.0' } } });
+  const dir = repo({
+    'package.json': { name: 'app', dependencies: { react: '^19.0.0' } },
+  });
   run(dir, ['init', '--agent=claude', '--guides']);
   const { out } = run(dir, ['context'], { mustPass: true });
   assert.match(out, /dev\/flowpad\/guides\/react\.md/);
@@ -332,7 +387,10 @@ test('context names the guides and the contract index it can see', () => {
 const fillSlot = (dir, label, value) => {
   const file = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
   const body = fs.readFileSync(file, 'utf8');
-  const next = body.replace(new RegExp(`^\\| ${label}[^|]*\\|[^|]*<TODO>[^|]*\\|$`, 'm'), `| ${label} | ${value} |`);
+  const next = body.replace(
+    new RegExp(`^\\| ${label}[^|]*\\|[^|]*<TODO>[^|]*\\|$`, 'm'),
+    `| ${label} | ${value} |`,
+  );
   assert.notStrictEqual(next, body, `slot not found: ${label}`);
   fs.writeFileSync(file, next);
 };
@@ -343,7 +401,10 @@ test('check prints the question to ask, not the slot label', () => {
   const { out } = run(dir, ['check']);
   assert.match(line(out, 'slots'), /WARN/);
   // The human-language wording, quoted and ready to use...
-  assert.match(line(out, 'slots'), /"Which branch do you commit to day to day\?"/);
+  assert.match(
+    line(out, 'slots'),
+    /"Which branch do you commit to day to day\?"/,
+  );
   // ...and not this tool's vocabulary, which is what §12 forbids quoting at a human.
   assert.doesNotMatch(line(out, 'slots'), /Working branch \(§6\)/);
 });
@@ -357,7 +418,10 @@ test('a declared open-questions ledger is read; unasked lines warn, none passes'
   assert.match(line(run(dir, ['check']).out, 'questions'), /FAIL/);
 
   const ledger = path.join(dir, 'dev/OPEN-QUESTIONS.md');
-  fs.writeFileSync(ledger, '- [ ] never asked\n- [~] asked, waiting\n- [x] answered: yes\n');
+  fs.writeFileSync(
+    ledger,
+    '- [ ] never asked\n- [~] asked, waiting\n- [x] answered: yes\n',
+  );
   const open = line(run(dir, ['check']).out, 'questions');
   assert.match(open, /WARN/);
   assert.match(open, /1 question\(s\) written down but never asked/);
@@ -426,12 +490,18 @@ test('`questions` prints what is open and changes nothing when it cannot ask', (
 test('`questions` is quiet where the ledger is empty, absent or undeclared', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
-  assert.match(run(dir, ['questions']).out, /declares no open-questions ledger/);
+  assert.match(
+    run(dir, ['questions']).out,
+    /declares no open-questions ledger/,
+  );
 
   fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
   assert.strictEqual(run(dir, ['questions']).code, 1); // declared, missing — a dead pointer
 
-  fs.writeFileSync(path.join(dir, 'dev/OPEN-QUESTIONS.md'), '- [x] answered: yes\n');
+  fs.writeFileSync(
+    path.join(dir, 'dev/OPEN-QUESTIONS.md'),
+    '- [x] answered: yes\n',
+  );
   const { code, out } = run(dir, ['questions']);
   assert.strictEqual(code, 0);
   assert.match(out, /Nothing open/);
@@ -470,8 +540,16 @@ test('init closes by handing the agent the questions, not an order to fill slots
   const tail = out.slice(out.indexOf('Next:'));
   assert.match(tail, /question\(s\) for the human/);
   assert.match(tail, /Which branch do you commit to day to day\?/);
-  assert.doesNotMatch(tail, /\bfill\b/i, `an order to fill leaked into: ${tail}`);
-  assert.doesNotMatch(tail, /<TODO>|\bslot\(s\)/i, `this tool's vocabulary leaked into: ${tail}`);
+  assert.doesNotMatch(
+    tail,
+    /\bfill\b/i,
+    `an order to fill leaked into: ${tail}`,
+  );
+  assert.doesNotMatch(
+    tail,
+    /<TODO>|\bslot\(s\)/i,
+    `this tool's vocabulary leaked into: ${tail}`,
+  );
 });
 
 test('a slot with a default or a detectable answer is never a question', () => {
@@ -481,9 +559,15 @@ test('a slot with a default or a detectable answer is never a question', () => {
   fs.writeFileSync(path.join(dir, '.claude/commands/doctor.md'), '# doctor\n');
   run(dir, ['init', '--agent=claude']);
 
-  const body = fs.readFileSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md'), 'utf8');
+  const body = fs.readFileSync(
+    path.join(dir, 'dev/flowpad/AGENT-INIT.md'),
+    'utf8',
+  );
   assert.match(body, /\| Session summary format \(§7\) \| `default`/);
-  assert.match(body, /\| Agent commands \(§10\) \| `\/doctor` · `\/publish` \|/);
+  assert.match(
+    body,
+    /\| Agent commands \(§10\) \| `\/doctor` · `\/publish` \|/,
+  );
 
   // ...and neither shows up in the questions the check tells the agent to ask.
   const slots = line(run(dir, ['check']).out, 'slots');
@@ -498,7 +582,18 @@ test('every unanswered slot yields a question, even one that is normally detecte
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
   // Only the message, not the row's own name — "slots" is the check's label for it.
-  const asked = line(run(dir, ['check']).out, 'slots').replace(/^\s*WARN\s+slots\s+/, '');
-  assert.doesNotMatch(asked, /§\d/, `a section reference leaked into: ${asked}`);
-  assert.doesNotMatch(asked, /\bslot\b/i, `this tool's vocabulary leaked into: ${asked}`);
+  const asked = line(run(dir, ['check']).out, 'slots').replace(
+    /^\s*WARN\s+slots\s+/,
+    '',
+  );
+  assert.doesNotMatch(
+    asked,
+    /§\d/,
+    `a section reference leaked into: ${asked}`,
+  );
+  assert.doesNotMatch(
+    asked,
+    /\bslot\b/i,
+    `this tool's vocabulary leaked into: ${asked}`,
+  );
 });
