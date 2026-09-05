@@ -785,6 +785,30 @@ function wireInto(root, results) {
   ]);
 }
 
+// Whether anything runs at commit time — registered, not merely present as a file
+// (§3's story: the hook files existed, the hook path did not). Returns what is
+// registered, for `check` to print, or null. Shared by `check` and the offer below so
+// the two can never disagree about whether the gate is there.
+function gateRegistered(root) {
+  let hooksPath = null;
+  try {
+    hooksPath = execFileSync(
+      'git',
+      ['-C', root, 'config', '--get', 'core.hooksPath'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
+  } catch {
+    hooksPath = null;
+  }
+  if (hooksPath) return `core.hooksPath = ${hooksPath}`;
+  if (exists(path.join(root, '.git', 'hooks', 'pre-commit')))
+    return '.git/hooks/pre-commit';
+  return null;
+}
+
 // Which instruction files this repository actually has, so the digest lands in the file
 // the agent already loads rather than in one we invented for it.
 const instructionFiles = (root, preferred) => {
@@ -936,6 +960,29 @@ function offerSession(root, agent, opts = {}) {
   );
 }
 
+// The commit gate, offered the way the session channel is. Until this existed the gate
+// was reachable only through `--wire`: a bare `init` answered three offers and never
+// mentioned the fourth, then `check` warned about it with no route to fix it. Offered
+// exactly where `check` would warn — no gate registered at all — so offer and check
+// never disagree. A repository already running its own pre-commit passes the check and
+// is not asked; putting `flowpad check` into somebody's existing hook is a decision, so
+// that stays the explicit `wire-gate` command (§4). `--wire` keeps its meaning: wire,
+// idempotently, without asking.
+function offerCommitGate(root, opts = {}) {
+  if (!exists(path.join(root, PROTOCOL_FILE))) return;
+  const wire = () => {
+    const results = [];
+    wireInto(root, results);
+    for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
+  };
+  if (opts.wire) return wire();
+  if (gateRegistered(root)) return;
+  if (ask('\nRun `flowpad check` before every commit (§6)?')) return wire();
+  console.log(
+    `\n${c.warn('Commit gate:')} nothing runs \`flowpad check\` at commit time — ${c.b('npx flowpad wire-gate')}`,
+  );
+}
+
 // The one place this package names a product. It is an OFFER, made once, at the moment
 // a repository has no answer for where its work is tracked — not a rule, and nothing in
 // `protocol/` mentions it. The boundary that keeps this honest: an offer may name a
@@ -1023,10 +1070,6 @@ function init(root, force, opts = {}) {
     writeFile(root, file.dest, read(file.src), force, results);
 
   anchorInto(root, results, opts.anchor);
-  if (opts.wire) {
-    wireInto(root, results);
-    wireSession(root, opts.agent, results);
-  }
 
   // The lock records the *upstream* bytes, not what is on disk. That is what makes
   // "the user edited this" distinguishable from "upstream moved".
@@ -1041,6 +1084,7 @@ function init(root, force, opts = {}) {
 
   for (const [tag, file] of results) console.log(`  ${tag}  ${file}`);
   offerGuides(root, opts);
+  offerCommitGate(root, opts);
   offerSession(root, opts.agent, opts);
   offerTaskSurface(root, opts);
 
@@ -1059,7 +1103,7 @@ function init(root, force, opts = {}) {
   // nothing yet: these are questions, they belong to the human, and here they are. See
   // openSlotQuestions for why this cannot say "fill".
   console.log(
-    `\n${c.warn('Next:')} ${open.length} question(s) for the human — ask them in conversation, then write the answers into §12:`,
+    `\n${c.warn('Next:')} ${open.length} question(s) for the human — ask them in conversation, then write the answers into the §12 table at the end of ${PROTOCOL_FILE}:`,
   );
   for (const q of open) console.log(`  ${c.warn('?')} ${q}`);
   console.log(c.dim('\nThen run `npx flowpad check`.'));
@@ -1316,28 +1360,13 @@ function check(root) {
 
   // 5. commit gate — §3's story: the hook files existed, the hook path did not.
   //    Checking that the guard is registered, not that its files are present.
-  let hooksPath = null;
-  try {
-    hooksPath = execFileSync(
-      'git',
-      ['-C', root, 'config', '--get', 'core.hooksPath'],
-      {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
-    ).trim();
-  } catch {
-    hooksPath = null;
-  }
-  const defaultHooks = path.join(root, '.git', 'hooks');
-  const hasDefaultHook = exists(path.join(defaultHooks, 'pre-commit'));
-  if (hooksPath) add('PASS', 'commit-gate', `core.hooksPath = ${hooksPath}`);
-  else if (hasDefaultHook) add('PASS', 'commit-gate', '.git/hooks/pre-commit');
+  const gate = gateRegistered(root);
+  if (gate) add('PASS', 'commit-gate', gate);
   else
     add(
       'WARN',
       'commit-gate',
-      'no pre-commit hook registered — §6 is unguarded',
+      'no pre-commit hook registered — §6 is unguarded; npx flowpad wire-gate',
     );
 
   // 6. guides — two failure modes, and the first one used to be invisible. A stale
@@ -1566,6 +1595,7 @@ function lockRecord(root) {
 function update(root, force) {
   const code = updateProtocol(root, force);
   if (code !== 0) return code;
+  offerCommitGate(root);
   offerSession(root, detectAgent(root));
   offerTaskSurface(root);
   return code;
@@ -1806,12 +1836,13 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
                        ${c.dim('add <name>')} to install one
   ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
+  ${c.b('npx flowpad wire-gate')}     run \`flowpad check\` before every commit
   ${c.b('npx flowpad context')}       print the session brief ${c.dim('(§0 + where the rest lives)')}
 
   ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
                    file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
-  ${c.dim('--wire')}           also wire \`flowpad check\` into the commit gate and the
-                   protocol into the session start, so both run without being remembered
+  ${c.dim('--wire')}           say yes to the commit-gate and session-channel offers
+                   without being asked ${c.dim('(init asks otherwise)')}
   ${c.dim('--guides')}         install the guides for the stacks detected here without asking
   ${c.dim('--tasks')}          answer the task-surface offer with yes without being asked
   ${c.dim('--force')}          skip the overwrite prompt
@@ -1856,6 +1887,12 @@ switch (cmd) {
   case 'wire-session': {
     const results = [];
     wireSession(root, agentName, results);
+    for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
+    break;
+  }
+  case 'wire-gate': {
+    const results = [];
+    wireInto(root, results);
     for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
     break;
   }

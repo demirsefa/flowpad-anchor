@@ -228,6 +228,38 @@ test('wiring keeps the settings a repository already had', () => {
   assert.strictEqual(again.hooks.SessionStart.length, 1);
 });
 
+test('bare init offers the commit gate; `wire-gate` installs it where nothing asked', () => {
+  // Until the offer existed, the gate was reachable only through `--wire`: a bare init
+  // answered three offers and never mentioned the fourth, then `check` warned about it
+  // with no route to fix it.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const { out } = run(dir, ['init', '--agent=claude']);
+  // Not a TTY here, so the offer falls through to the hint — and must not touch hooks.
+  assert.match(out, /Commit gate:.*wire-gate/);
+  assert.ok(!fs.existsSync(path.join(dir, '.git/hooks/pre-commit')));
+  assert.match(line(run(dir, ['check']).out, 'commit-gate'), /WARN.*wire-gate/);
+
+  run(dir, ['wire-gate']);
+  assert.match(
+    fs.readFileSync(path.join(dir, '.git/hooks/pre-commit'), 'utf8'),
+    /flowpad check/,
+  );
+  assert.match(line(run(dir, ['check']).out, 'commit-gate'), /PASS/);
+  // A repository that already guards its commits is not asked again.
+  assert.doesNotMatch(run(dir, ['update', '--force']).out, /Commit gate:/);
+});
+
+test('the closing questions say which file the answers go into', () => {
+  // "write the answers into §12" told a human at a terminal nothing: which file? The
+  // agent knows; the person who ran npx does not.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const { out } = run(dir, ['init', '--agent=claude']);
+  assert.match(
+    out,
+    /write the answers into the §12 table at the end of dev\/flowpad\/AGENT-INIT\.md/,
+  );
+});
+
 test('an agent with no session channel gets a marked digest block instead', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=cursor', '--wire']);

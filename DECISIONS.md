@@ -496,3 +496,38 @@ enforcement over a check that could not see the thing it was counting.
 
 `dev/OPEN-QUESTIONS.md`, this package's own ledger, went with it. Opened 2026-08-04,
 removed 2026-09-05, three lines in total.
+
+### This is one developer's protocol, shared — not a framework
+
+The README opened with a problem statement and an idea, in the register of a framework
+pitch. A framework promises breadth, stability and support; this package has one
+author, two consuming workspaces, guides for two stacks, and no evidence of a user
+outside them. The gap between the promise and the thing is why it never quite settled,
+even for its author — and it is why the audit that led here kept producing findings
+(a rename, an uninstall command, more stacks, a support channel) that only matter if
+the goal is adoption.
+
+The goal, stated plainly by the author, is smaller: *share my own working documents,
+and be able to see whether a repository has actually applied them.* The README now says
+that first. It changes what gets built: anything that does not serve the shared document
+or the check of its application does not go in. Applied backwards, that test removes
+exactly one thing — the open-questions ledger, already removed above — which is some
+evidence the rest is coherent.
+
+The name stays `flowpad`. It was chosen on purpose as branding, and under this framing
+it is simply where the protocol came from.
+
+### The commit gate is offered, like everything else `init` can wire
+
+`init` offered guides, the session channel and the task surface, and asked about each.
+The commit gate — the one guardian §6 depends on — was reachable only through `--wire`.
+A bare `init` at a terminal answered three questions, never mentioned the fourth, and
+`check` then warned *"§6 is unguarded"* with no command to fix it short of running
+`init` again.
+
+The offer follows the session channel's rule exactly: offered where `check` would warn,
+so the two never disagree. A repository already running its own pre-commit passes the
+check and is not asked; appending `flowpad check` to somebody's existing hook is a
+decision, so that stays the explicit `wire-gate` command. `--wire` keeps its meaning —
+yes to both gate offers, without a prompt — which makes it what it should have been:
+the non-interactive shortcut, not the documented way in.
