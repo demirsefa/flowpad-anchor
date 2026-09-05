@@ -409,104 +409,6 @@ test('check prints the question to ask, not the slot label', () => {
   assert.doesNotMatch(line(out, 'slots'), /Working branch \(§6\)/);
 });
 
-test('a declared open-questions ledger is read; unasked lines warn, none passes', () => {
-  const dir = repo({ 'package.json': { name: 'app' } });
-  run(dir, ['init', '--agent=claude']);
-  fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
-
-  // Declared but absent — a dead pointer, same class as an indexed contract with no file.
-  assert.match(line(run(dir, ['check']).out, 'questions'), /FAIL/);
-
-  const ledger = path.join(dir, 'dev/OPEN-QUESTIONS.md');
-  fs.writeFileSync(
-    ledger,
-    '- [ ] never asked\n- [~] asked, waiting\n- [x] answered: yes\n',
-  );
-  const open = line(run(dir, ['check']).out, 'questions');
-  assert.match(open, /WARN/);
-  assert.match(open, /1 question\(s\) written down but never asked/);
-  assert.match(open, /1 awaiting an answer/);
-
-  fs.writeFileSync(ledger, '- [x] answered: yes\n');
-  assert.match(line(run(dir, ['check']).out, 'questions'), /PASS/);
-});
-
-test('check prints the wording of the open questions, not only how many there are', () => {
-  const dir = repo({ 'package.json': { name: 'app' } });
-  run(dir, ['init', '--agent=claude']);
-  fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
-  fs.writeFileSync(
-    path.join(dir, 'dev/OPEN-QUESTIONS.md'),
-    '- [ ] should the cache be per user or per workspace?\n- [x] ship on friday? — no\n',
-  );
-  const { out } = run(dir, ['check']);
-  assert.match(out, /Open questions/);
-  assert.match(out, /should the cache be per user or per workspace\?/);
-  // A closed line is history, not something to put in front of anyone again.
-  assert.doesNotMatch(out, /ship on friday/);
-});
-
-test('a question wrapped over several lines is one question, and a fenced example is none', () => {
-  const dir = repo({ 'package.json': { name: 'app' } });
-  run(dir, ['init', '--agent=claude']);
-  fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
-  fs.writeFileSync(
-    path.join(dir, 'dev/OPEN-QUESTIONS.md'),
-    [
-      'Line format:',
-      '',
-      '```',
-      '- [ ] <question> — assumption: <what I did without asking>',
-      '```',
-      '',
-      '- [ ] should the retry budget be per request',
-      '      or per session? — assumption: per request',
-      '',
-    ].join('\n'),
-  );
-  const { out } = run(dir, ['check']);
-  assert.match(line(out, 'questions'), /1 question\(s\)/);
-  assert.match(out, /should the retry budget be per request or per session\?/);
-  assert.doesNotMatch(out, /<question>/);
-});
-
-test('`questions` prints what is open and changes nothing when it cannot ask', () => {
-  const dir = repo({ 'package.json': { name: 'app' } });
-  run(dir, ['init', '--agent=claude']);
-  fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
-  const ledger = path.join(dir, 'dev/OPEN-QUESTIONS.md');
-  const before = '- [ ] per user or per workspace?\n';
-  fs.writeFileSync(ledger, before);
-
-  const { code, out } = run(dir, ['questions']);
-  assert.strictEqual(code, 0);
-  assert.match(out, /1 open question\(s\)/);
-  assert.match(out, /per user or per workspace\?/);
-  // Not a TTY here, so it may only report — writing an answer nobody typed is the one
-  // thing this command must never do.
-  assert.strictEqual(fs.readFileSync(ledger, 'utf8'), before);
-});
-
-test('`questions` is quiet where the ledger is empty, absent or undeclared', () => {
-  const dir = repo({ 'package.json': { name: 'app' } });
-  run(dir, ['init', '--agent=claude']);
-  assert.match(
-    run(dir, ['questions']).out,
-    /declares no open-questions ledger/,
-  );
-
-  fillSlot(dir, 'Open questions ledger \\(§4\\)', '`dev/OPEN-QUESTIONS.md`');
-  assert.strictEqual(run(dir, ['questions']).code, 1); // declared, missing — a dead pointer
-
-  fs.writeFileSync(
-    path.join(dir, 'dev/OPEN-QUESTIONS.md'),
-    '- [x] answered: yes\n',
-  );
-  const { code, out } = run(dir, ['questions']);
-  assert.strictEqual(code, 0);
-  assert.match(out, /Nothing open/);
-});
-
 test('a command §12 declares must exist; `none` is a real answer', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
@@ -522,11 +424,10 @@ test('a command §12 declares must exist; `none` is a real answer', () => {
   assert.match(line(run(dir, ['check']).out, 'commands'), /PASS/);
 });
 
-test('an unfilled ledger or command slot is a question, not a failure', () => {
+test('an unfilled command slot is a question, not a failure', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude']);
   const { out } = run(dir, ['check']);
-  assert.strictEqual(line(out, 'questions'), '');
   assert.strictEqual(line(out, 'commands'), '');
 });
 

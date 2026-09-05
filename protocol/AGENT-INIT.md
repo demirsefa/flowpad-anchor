@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 13
+version: 14
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -47,10 +47,10 @@ rest is reference, opened when relevant.*
 4. **A task must stand alone.** An investigation task delivers a report, not code. (§5)
    Any `<TODO>` slot in §12 is a question for the human — never a blank to guess, and
    never asked in this document's vocabulary: assume they have not read it. (§12)
-5. **Write a question down the moment you notice it, then ask.** Anything you cannot
-   derive goes into the open-questions ledger (§12) as an open line — writing and asking
-   are separate moments, and that is what makes a forgotten question visible. Record the
-   answer itself, not a tick. (§4)
+5. **Ask the moment you cannot derive an answer, and ask it well** — on its own, first
+   line, one at a time, in the human's words. A question you park instead of asking is a
+   decision you already made: record the assumption where the decision lives, never in a
+   queue of its own. (§4)
 6. **Branching and release are project settings (§12), not things to infer.** An agent
    never opens a branch on its own, and never ships — it prepares; a human releases. In
    some projects a push is already a deploy. (§6)
@@ -203,22 +203,17 @@ So:
 
 An unanswered question and an unasked one cost the same. Asking badly is not asking.
 
-**Write the question down before you ask it.** Any question you cannot answer from the
-code, the contracts, or this protocol goes into the project's open-questions ledger
-(§12) as an open line — *at the moment you notice it*, which is not the moment you ask.
-Keeping the two moments apart is the whole mechanism: an agent that forgets to ask still
-wrote the line, so the unchecked box makes the forgetting visible. Batching (above) then
-happens over a written list rather than over memory.
+**A question you park is a decision you already made.** There is no queue to put it in.
+If you cannot derive the answer from the code, the contracts, or this protocol, and it
+blocks the work, ask now, in the shape above. If it does not block the work you are
+about to proceed on an assumption — so write the assumption down where the decision it
+affects lives: the contract, the task, the commit message. Say what you assumed and what
+would change if it is wrong.
 
-- Open a line the moment the uncertainty appears, and say what you assumed if you carried
-  on without an answer. Adding it afterwards, once the answer is in, defeats the purpose.
-- When you do ask and get an answer, **write the answer itself into the line**, not a tick.
-  A tick is free to fabricate; an answer is not, and it is what the next session reads.
-- A line whose answer is "no" or "not needed" is *closed*, not deleted — that is what
-  stops the same question being asked again next week.
-
-This does not detect the question you never noticed; nothing can. It detects the one you
-noticed and did not raise, which is the failure that actually recurs.
+A standing file of unasked questions is not a safety net. It collects precisely the ones
+nobody found urgent enough to answer, they rot there while the code ships on the
+assumption anyway, and the record of what was assumed ends up far from the code it
+explains.
 
 **Do not spawn other agents** unless asked. The reports flood the context the human is
 trying to follow.
@@ -386,7 +381,7 @@ this table.
 | End-of-session ritual (§8) | ⚠️ partial — a session-stop hook, where the agent supports one |
 | Spike lock (§5) | ⚠️ none — intent only |
 | Report formats (§7) | ⚠️ none — intent only |
-| An open question was written down before it was asked (§4) | ⚠️ partial — the check counts unanswered lines in the declared ledger; whether a question ever reached it is intent |
+| A question is asked rather than parked (§4) | ⚠️ none — intent only; a queue of unasked questions was tried and removed in v14, see `DECISIONS.md` |
 | The commands §12 declares actually exist (§10) | ✅ installation check — a declared command with nothing behind it is a dead pointer |
 | Boundaries (§4) | ⚠️ partial — the agent's permission settings |
 | Stack guides and `PRINCIPLES.md` — missing, stale, or written for another major | ✅ installation check (detected stack, `last-reviewed` age, `verified-against` range) |
@@ -544,7 +539,6 @@ question is theirs. Then write the answers in as they arrive, and carry on.
 | How a change reaches production (§6) | `<TODO>` — ask: *How does a change get live from here — or does nothing deploy?* |
 | Health check (§9) | `<TODO>` — ask: *Is there one command that tells you the project is healthy?* |
 | Test command | `<TODO>` — ask: *How do you run the tests?* |
-| Open questions ledger (§4) | `<TODO>` — ask: *Shall I keep a file of my questions and your answers, so nothing gets lost between sessions?* |
 | Session summary format (§7) | `default` — filled in; a project wanting another shape replaces this |
 | Agent commands (§10) | `<TODO>` — ask: *Are there commands you type to get me to do things here?* (detected from the agent's command folder when there are any) |
 | Where wins are recorded (§8) | `<TODO>` — ask: *Do you keep a file of what got shipped?* |

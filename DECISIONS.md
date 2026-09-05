@@ -456,3 +456,43 @@ per line, with no section numbers and no order to fill anything. The general for
 sequel to "asking badly is not asking": wording that only exists on the reporting path is
 wording the install path will reinvent. The test asserts the absence — no "fill", no
 `<TODO>`, no "slot" — because that is the half that rots quietly.
+
+### The open-questions ledger is removed: it collected the questions nobody asked
+
+Three entries above built this mechanism — the ledger itself, the reading half in
+`check`, and the `questions` command that answers at a terminal. All three are reversed
+here. The argument was that splitting *noticing* from *asking* makes a forgotten
+question visible. It does. What it does not do is get the question answered, and that
+was the point.
+
+Two consuming repositories were measured before deciding. In one, the ledger held three
+lines in its lifetime: one answered, one asked a month earlier and still waiting, one
+never asked at all. In the other it had grown to 372 lines and 33 entries, of which 22
+were open — the oldest four weeks old, one of them annotated *"asked twice, no answer,
+shipped on the assumption"*. That second file also wrote its entries as bold questions
+rather than the `- [ ]` lines the parser reads, so `check` reported **`PASS questions —
+nothing unasked`** over 22 open ones. The reading half was not merely weak; in the
+repository that needed it most it was blind, and green.
+
+The same file supplies the counter-measurement. Five of its questions carry *"answered
+the same day"* — every one of those was asked in conversation, not parked. So the split
+is real, but it does not run the way it was designed: a question that reaches the human
+gets answered within the day, and a question that reaches the file does not get answered
+at all.
+
+The structural reason is not a wiring bug, which is why building a third half would not
+have helped. A question that *can* wait in a file is by definition not blocking; if it
+were, the agent would have to ask. So the ledger selects for exactly the questions
+nobody finds urgent, and then preserves them. Meanwhile the code ships on the
+assumption regardless — and the record of what was assumed ends up in a queue rather
+than next to the decision it explains, which is the one place a later session would
+look.
+
+So §4 keeps its *how to ask* half, which works, and drops the ledger. What survives is
+the useful residue: if you proceed without an answer, write the assumption down where
+the decision lives — the contract, the task, the commit message. The enforcement table
+now records this rule as intent only. That is honest: an earlier row claimed partial
+enforcement over a check that could not see the thing it was counting.
+
+`dev/OPEN-QUESTIONS.md`, this package's own ledger, went with it. Opened 2026-08-04,
+removed 2026-09-05, three lines in total.
