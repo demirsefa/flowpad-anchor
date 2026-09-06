@@ -531,3 +531,36 @@ check and is not asked; appending `flowpad check` to somebody's existing hook is
 decision, so that stays the explicit `wire-gate` command. `--wire` keeps its meaning —
 yes to both gate offers, without a prompt — which makes it what it should have been:
 the non-interactive shortcut, not the documented way in.
+
+### A guardian is judged by what it does, not by whether it is there
+
+Two rows of `check` were passing on presence. The commit-gate row passed on any
+pre-commit hook at all — a hook running only the linter was reported as the gate that
+guards §6, with `flowpad check` nowhere in it. The session row passed once a
+`SessionStart` hook was registered and named the protocol file; whether it printed
+anything was never asked, and a wrong awk range prints nothing while looking exactly
+like working.
+
+This is the ledger's failure one level down. The ledger was anchored and enforced and
+sat green for a month while dead; the lesson was that a green row on a dead rule is
+worse than no row, because it ends the inquiry. So both rows now read the effect: the
+gate row opens the hook and looks for the check in either form this tool writes —
+pinned or `@latest` — and `yarn anchor` counts, it is the script `wire-gate` adds, and the session row runs the hook once, the way the agent
+would, and looks for the digest. Only the hook this tool recognises as its own is ever
+run, with a hard timeout. An edited hook that still prints the digest now passes; it
+used to warn on the edit alone, which judged the text instead of the effect.
+
+One consequence reverses a line written two entries up. A repository with its own
+pre-commit that does not run the check *is* asked whether to add it — the offer follows
+the check, and asking is not writing. Skipping the question would have left that
+repository warned forever with nobody offered a way out.
+
+### The tool stops quoting section numbers at people
+
+The settings table forbids asking a human in this document's vocabulary, and the
+tool's own output was doing it anyway: *"§6 is unguarded"*, *"§10 step 2"*, *"the §12
+slot"*. Everything printed to a person now says what it means — *nothing guards the
+commit*, *the settings table*, *the digest*. Slot labels keep their numbers: they are
+data the merge matches on, not prose. The `context` output and the digest block are
+addressed to an agent that is about to read the document, and keep theirs. A test now
+holds the line for `init`, `check`, `update` and `help`.

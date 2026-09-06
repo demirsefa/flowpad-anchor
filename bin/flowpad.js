@@ -701,8 +701,14 @@ function anchorInto(root, results, preferred) {
 
 // Wiring is opt-in on purpose. Editing somebody's commit hook or manifest without
 // being asked is exactly the behaviour this protocol tells agents not to have (§4).
+// Both forms `wireInto` writes (`npx flowpad check` with a pinned dependency,
+// `npx -y flowpad@latest check` without one) plus the `anchor` script it adds. The
+// idempotence check and the effect check read the same pattern, or one of them lies:
+// the effect check first shipped matching only the pinned form and warned on a real
+// consumer whose hook this tool had written itself.
+const RUNS_CHECK = /\bflowpad(@\S+)?\s+check\b|\banchor\b/;
+
 function wireInto(root, results) {
-  const HOOK_MARK = 'flowpad check';
   const pkgPath = path.join(root, 'package.json');
   let viaDependency = false;
 
@@ -767,7 +773,7 @@ function wireInto(root, results) {
   }
   const hook = path.join(hookDir, 'pre-commit');
   const body = exists(hook) ? read(hook) : '';
-  if (body.includes(HOOK_MARK)) {
+  if (RUNS_CHECK.test(body)) {
     results.push([
       c.dim('same'),
       `${path.relative(root, hook)} (already wired)`,
@@ -785,11 +791,15 @@ function wireInto(root, results) {
   ]);
 }
 
-// Whether anything runs at commit time — registered, not merely present as a file
-// (§3's story: the hook files existed, the hook path did not). Returns what is
-// registered, for `check` to print, or null. Shared by `check` and the offer below so
-// the two can never disagree about whether the gate is there.
-function gateRegistered(root) {
+// What actually runs at commit time. Two lessons folded in: the hook has to be
+// *registered*, not merely present as a file (§3's story: the files existed, the hook
+// path did not) — and being registered is not enough either. The open-questions ledger
+// sat green for a month while dead, and this row used to pass on any pre-commit at all,
+// `flowpad check` in it or not. A green row on a gate that never runs the check ends
+// the inquiry, which is worse than no row. So this reads the hook body. `yarn anchor` /
+// `npm run anchor` count: that is the script `wire-gate` adds. Shared by `check` and
+// the offer so the two can never disagree.
+function gateStatus(root) {
   let hooksPath = null;
   try {
     hooksPath = execFileSync(
@@ -803,10 +813,16 @@ function gateRegistered(root) {
   } catch {
     hooksPath = null;
   }
-  if (hooksPath) return `core.hooksPath = ${hooksPath}`;
-  if (exists(path.join(root, '.git', 'hooks', 'pre-commit')))
-    return '.git/hooks/pre-commit';
-  return null;
+  // husky v9 keeps its runner in .husky/_ but the hooks themselves one level up.
+  const hookDir = hooksPath
+    ? path.resolve(root, hooksPath.replace(/\/_$/, ''))
+    : path.join(root, '.git', 'hooks');
+  const hook = path.join(hookDir, 'pre-commit');
+  if (!exists(hook)) return { hook: null, runsCheck: false };
+  return {
+    hook: path.relative(root, hook),
+    runsCheck: RUNS_CHECK.test(read(hook)),
+  };
 }
 
 // Which instruction files this repository actually has, so the digest lands in the file
@@ -840,7 +856,7 @@ function wireSession(root, agent, results) {
     if (!digest) {
       results.push([
         c.warn('skipped'),
-        'session digest — no §0 section in the installed protocol',
+        'session digest — no digest section (## 0.) in the installed protocol',
       ]);
       return;
     }
@@ -856,7 +872,7 @@ function wireSession(root, agent, results) {
       const what = writeDigestBlock(root, file, digest);
       results.push([
         what === 'same' ? c.dim('same') : c.ok(what),
-        `${file} (§0 digest block)`,
+        `${file} (digest block)`,
       ]);
     }
     return;
@@ -946,10 +962,7 @@ function offerSession(root, agent, opts = {}) {
   // by `update` itself, not re-offered.
   if (sessionStatus(root, read(protocolPath))[0] !== 'INFO') return;
 
-  if (
-    opts.wire ||
-    ask('\nLoad the protocol at every session start (§10 step 2)?')
-  ) {
+  if (opts.wire || ask('\nLoad the protocol at every session start?')) {
     const results = [];
     wireSession(root, agent, results);
     for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
@@ -963,11 +976,9 @@ function offerSession(root, agent, opts = {}) {
 // The commit gate, offered the way the session channel is. Until this existed the gate
 // was reachable only through `--wire`: a bare `init` answered three offers and never
 // mentioned the fourth, then `check` warned about it with no route to fix it. Offered
-// exactly where `check` would warn — no gate registered at all — so offer and check
-// never disagree. A repository already running its own pre-commit passes the check and
-// is not asked; putting `flowpad check` into somebody's existing hook is a decision, so
-// that stays the explicit `wire-gate` command (§4). `--wire` keeps its meaning: wire,
-// idempotently, without asking.
+// exactly where `check` would warn — nothing runs the check at commit time — so offer
+// and check never disagree. `--wire` keeps its meaning: wire, idempotently, without
+// asking.
 function offerCommitGate(root, opts = {}) {
   if (!exists(path.join(root, PROTOCOL_FILE))) return;
   const wire = () => {
@@ -976,8 +987,14 @@ function offerCommitGate(root, opts = {}) {
     for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
   };
   if (opts.wire) return wire();
-  if (gateRegistered(root)) return;
-  if (ask('\nRun `flowpad check` before every commit (§6)?')) return wire();
+  const gate = gateStatus(root);
+  if (gate.runsCheck) return;
+  // A hook that exists but does not run the check is asked about too — asking is not
+  // writing, and the alternative is a check that warns forever with nobody offered a way out.
+  const question = gate.hook
+    ? `\nAdd \`flowpad check\` to ${gate.hook}, so it runs before every commit?`
+    : '\nRun `flowpad check` before every commit?';
+  if (ask(question)) return wire();
   console.log(
     `\n${c.warn('Commit gate:')} nothing runs \`flowpad check\` at commit time — ${c.b('npx flowpad wire-gate')}`,
   );
@@ -1008,7 +1025,7 @@ function offerTaskSurface(root, opts = {}) {
     // No human was there to answer, so nothing was declined. Print, do not record — a
     // scripted install must never spend the one question a human has not seen yet.
     console.log(
-      `\n${c.dim('Tasks:')} nowhere recorded yet — ${c.b('npx flowpad-mcp')} puts them on a FlowPad board, or fill the §12 slot with whatever you already use.`,
+      `\n${c.dim('Tasks:')} nowhere recorded yet — ${c.b('npx flowpad-mcp')} puts them on a FlowPad board, or fill the task-surface row of the settings table with whatever you already use.`,
     );
     return;
   }
@@ -1029,7 +1046,7 @@ function offerTaskSurface(root, opts = {}) {
       `${JSON.stringify(lockRecord(root), null, 2)}\n`,
     );
   console.log(
-    `  ${c.ok('set')}  §12 Task surface → FlowPad · set it up with ${c.b('npx flowpad-mcp')}`,
+    `  ${c.ok('set')}  settings: Task surface → FlowPad · set it up with ${c.b('npx flowpad-mcp')}`,
   );
 }
 
@@ -1038,7 +1055,7 @@ function offerTaskSurface(root, opts = {}) {
 // name them at the moment the agent is looking at its output.
 const REFLEXES = {
   claude:
-    'a slash command for the commit flow + health check, a Stop hook for §8, and permissions in .claude/settings.json for §4',
+    'a slash command for the commit flow + health check, a Stop hook for the end-of-session ritual, and permissions in .claude/settings.json for the ask/do boundary',
   codex:
     'a callable command for the commit flow + health check, and whatever end-of-session hook your setup supports',
   cursor:
@@ -1091,7 +1108,7 @@ function init(root, force, opts = {}) {
   const reflex = REFLEXES[opts.agent];
   if (reflex)
     console.log(
-      `\n${c.dim(`Reflexes (§10 step 4) — ${opts.agent}: ${reflex}`)}`,
+      `\n${c.dim(`Reflexes to wire by hand — ${opts.agent}: ${reflex}`)}`,
     );
 
   const open = openSlotQuestions(installed);
@@ -1103,7 +1120,7 @@ function init(root, force, opts = {}) {
   // nothing yet: these are questions, they belong to the human, and here they are. See
   // openSlotQuestions for why this cannot say "fill".
   console.log(
-    `\n${c.warn('Next:')} ${open.length} question(s) for the human — ask them in conversation, then write the answers into the §12 table at the end of ${PROTOCOL_FILE}:`,
+    `\n${c.warn('Next:')} ${open.length} question(s) for the human — ask them in conversation, then write the answers into the settings table at the end of ${PROTOCOL_FILE}:`,
   );
   for (const q of open) console.log(`  ${c.warn('?')} ${q}`);
   console.log(c.dim('\nThen run `npx flowpad check`.'));
@@ -1135,20 +1152,39 @@ function sessionStatus(root, protocol) {
       String((h && h.command) || '').includes('AGENT-INIT.md'),
     );
     if (!hit) continue;
-    // A command that no longer matches what this version writes still counts as wired —
-    // the user is allowed to adapt it — but the drift is worth naming, because the awk
-    // range and the protocol's section numbering have to agree for it to print anything.
-    return hit.command === sessionCommand()
-      ? [
-          'PASS',
-          'session',
-          `${agent}: SessionStart hook — the protocol loads every session`,
-        ]
-      : [
-          'WARN',
-          'session',
-          `${agent}: SessionStart hook is wired but was edited — verify it still prints §0`,
-        ];
+    // Registered is not loaded. The hook is a shell string handed to somebody else's
+    // runner, and a wrong awk range or path fails silently — printing nothing looks
+    // exactly like working. So run it once, the way the agent would, and look for the
+    // digest. Only the hook this tool recognises as its own (it names the protocol file)
+    // is ever executed, with the variable the agent would set and a hard timeout. An
+    // edited command that still prints the digest is fine; that used to warn on the
+    // edit alone, which judged the text instead of the effect.
+    let prints = false;
+    try {
+      const out = execFileSync('sh', ['-c', hit.command], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 3000,
+        env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      prints = /## 0\. Digest/.test(out);
+    } catch {
+      prints = false;
+    }
+    if (!prints)
+      return [
+        'WARN',
+        'session',
+        `${agent}: SessionStart hook is registered but prints no digest — the path or the awk range is off; npx flowpad wire-session`,
+      ];
+    return [
+      'PASS',
+      'session',
+      hit.command === sessionCommand()
+        ? `${agent}: SessionStart hook — the protocol loads every session`
+        : `${agent}: SessionStart hook (edited) — still prints the digest`,
+    ];
   }
 
   const digest = digestOf(protocol);
@@ -1165,19 +1201,15 @@ function sessionStatus(root, protocol) {
       ? [
           'WARN',
           'session',
-          `§0 digest block in ${stale.join(', ')} no longer matches the protocol — run \`npx flowpad update\``,
+          `digest block in ${stale.join(', ')} no longer matches the protocol — run \`npx flowpad update\``,
         ]
-      : [
-          'PASS',
-          'session',
-          `§0 digest block in ${carriers.join(', ')}, current`,
-        ];
+      : ['PASS', 'session', `digest block in ${carriers.join(', ')}, current`];
   }
 
   return [
     'INFO',
     'session',
-    'the protocol is pointed at, not loaded — `npx flowpad wire-session` puts §0 in front of every session',
+    'the protocol is pointed at, not loaded — `npx flowpad wire-session` puts the digest in front of every session',
   ];
 }
 
@@ -1268,7 +1300,7 @@ function check(root) {
         add(
           'WARN',
           'read-only',
-          `${stray} line(s) added outside the §12 slot table — \`update\` will drop them; move them to the project instruction file`,
+          `${stray} line(s) added outside the settings table — \`update\` will drop them; move them to the project instruction file`,
         );
       }
       add('PASS', 'version', `v${localV}, slots filled (expected)`);
@@ -1313,7 +1345,7 @@ function check(root) {
       add(
         'FAIL',
         'commands',
-        `declared in §12 but not installed: ${missing.map((n) => `/${n}`).join(', ')}`,
+        `declared in the settings table but not installed: ${missing.map((n) => `/${n}`).join(', ')}`,
       );
     else add('PASS', 'commands', `${named.length} declared, all installed`);
   }
@@ -1360,14 +1392,20 @@ function check(root) {
 
   // 5. commit gate — §3's story: the hook files existed, the hook path did not.
   //    Checking that the guard is registered, not that its files are present.
-  const gate = gateRegistered(root);
-  if (gate) add('PASS', 'commit-gate', gate);
-  else
+  const gate = gateStatus(root);
+  if (!gate.hook)
     add(
       'WARN',
       'commit-gate',
-      'no pre-commit hook registered — §6 is unguarded; npx flowpad wire-gate',
+      'no pre-commit hook registered — nothing guards the commit; npx flowpad wire-gate',
     );
+  else if (!gate.runsCheck)
+    add(
+      'WARN',
+      'commit-gate',
+      `${gate.hook} exists but does not run flowpad check; npx flowpad wire-gate`,
+    );
+  else add('PASS', 'commit-gate', gate.hook);
 
   // 6. guides — two failure modes, and the first one used to be invisible. A stale
   //    guide is dangerous because an agent applies it with full confidence; a *missing*
@@ -1499,7 +1537,7 @@ function syncSidecars(root, force, lock) {
     const edited = recorded ? recorded.installed !== sha(local) : true;
     if (edited && !force) {
       console.log(
-        `  ${c.warn('local edits')}  ${file.dest} — it is upstream's file (§11).`,
+        `  ${c.warn('local edits')}  ${file.dest} — it is upstream's file; project text belongs in your instruction file.`,
       );
       if (!ask('  Overwrite?')) {
         console.log(c.dim('  Kept.'));
@@ -1526,7 +1564,7 @@ function refreshDigestBlocks(root) {
     const abs = path.join(root, file);
     if (!exists(abs) || !read(abs).includes(DIGEST_START)) continue;
     if (writeDigestBlock(root, file, digest) === 'refreshed')
-      console.log(`  ${c.ok('refreshed')}  ${file} (§0 digest block)`);
+      console.log(`  ${c.ok('refreshed')}  ${file} (digest block)`);
   }
 }
 
@@ -1685,7 +1723,7 @@ function updateProtocol(root, force) {
         `(v${protocolVersion(local)} → v${protocolVersion(upstream)}).`,
     );
     console.log(
-      `  ${c.ok(`${Object.keys(slots).length} §12 slot(s)`)} will be carried over.`,
+      `  ${c.ok(`${Object.keys(slots).length} project setting(s)`)} will be carried over.`,
     );
     if (lost === null) {
       console.log(
@@ -1702,7 +1740,7 @@ function updateProtocol(root, force) {
         console.log(c.dim(`    … and ${lost.length - 20} more`));
       console.log(
         c.dim(
-          '    (project-specific text belongs in §12 or your instruction file)',
+          '    (project-specific text belongs in the settings table or your instruction file)',
         ),
       );
     }
@@ -1718,7 +1756,7 @@ function updateProtocol(root, force) {
   refreshDigestBlocks(root);
   console.log(
     c.ok('Updated.'),
-    `v${protocolVersion(upstream)} — ${Object.keys(slots).length} slot(s) preserved.`,
+    `v${protocolVersion(upstream)} — ${Object.keys(slots).length} project setting(s) preserved.`,
   );
   // Whoever ran this is usually an agent mid-session, holding the version that was on
   // disk when the session opened. The session channel only fires at session start, so
@@ -1785,7 +1823,7 @@ function guide(root, sub, names) {
     console.log(`  ${c.ok('wrote')}  ${rel}`);
   }
   console.log(
-    `\n  ${c.dim('Point your instruction file at them, or let §2 find them — they are advice, not law.')}`,
+    `\n  ${c.dim('Point your instruction file at them, or let the session-start orientation find them — they are advice, not law.')}`,
   );
   return 0;
 }
@@ -1832,12 +1870,12 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
 
   ${c.b('npx flowpad init')}     install the protocol and scaffolding into this repository
   ${c.b('npx flowpad check')}    verify it is anchored, filled in, and current  ${c.dim('(exit 1 on failure)')}
-  ${c.b('npx flowpad update')}   pull a newer protocol, keeping the §12 project slots
+  ${c.b('npx flowpad update')}   pull a newer protocol, keeping the project settings
   ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
                        ${c.dim('add <name>')} to install one
   ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
   ${c.b('npx flowpad wire-gate')}     run \`flowpad check\` before every commit
-  ${c.b('npx flowpad context')}       print the session brief ${c.dim('(§0 + where the rest lives)')}
+  ${c.b('npx flowpad context')}       print the session brief ${c.dim('(the digest + where the rest lives)')}
 
   ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
                    file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}

@@ -256,8 +256,74 @@ test('the closing questions say which file the answers go into', () => {
   const { out } = run(dir, ['init', '--agent=claude']);
   assert.match(
     out,
-    /write the answers into the §12 table at the end of dev\/flowpad\/AGENT-INIT\.md/,
+    /write the answers into the settings table at the end of dev\/flowpad\/AGENT-INIT\.md/,
   );
+});
+
+test('the commit gate is judged by what it runs, not by whether a file exists', () => {
+  // This row used to pass on any pre-commit at all. A green row on a gate that never
+  // runs the check ends the inquiry — the open-questions ledger sat green for a month
+  // while dead, and this is the same failure one level down.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const hook = path.join(dir, '.git/hooks/pre-commit');
+  fs.writeFileSync(hook, '#!/bin/sh\nnpm test\n');
+  fs.chmodSync(hook, 0o755);
+  const row = line(run(dir, ['check']).out, 'commit-gate');
+  assert.match(row, /WARN/);
+  assert.match(row, /does not run flowpad check/);
+  // The offer follows the check: a hook that exists is offered the addition, not skipped.
+  assert.match(run(dir, ['update', '--force']).out, /Commit gate:.*wire-gate/);
+
+  run(dir, ['wire-gate']);
+  assert.match(fs.readFileSync(hook, 'utf8'), /npm test\nnpx flowpad check/);
+  assert.match(line(run(dir, ['check']).out, 'commit-gate'), /PASS/);
+});
+
+test('the unpinned hook form the tool writes itself is recognised, and never doubled', () => {
+  // With no package.json the gate is written as `npx -y flowpad@latest check`. The
+  // effect check first shipped matching only the pinned form and warned on a consumer
+  // whose hook this tool had written — and re-wiring would have appended a second line.
+  const dir = repo();
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# p\n');
+  run(dir, ['init']);
+  const hook = path.join(dir, '.git/hooks/pre-commit');
+  fs.writeFileSync(hook, '#!/bin/sh\nnpx -y flowpad@latest check\n');
+  fs.chmodSync(hook, 0o755);
+  assert.match(line(run(dir, ['check']).out, 'commit-gate'), /PASS/);
+  run(dir, ['wire-gate']);
+  const body = fs.readFileSync(hook, 'utf8');
+  assert.strictEqual(body.match(/flowpad/g).length, 1);
+});
+
+test('a session hook that prints nothing is reported, even though it is registered', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude', '--wire']);
+  assert.match(line(run(dir, ['check']).out, 'session'), /PASS/);
+
+  // Still registered, still names the protocol file, prints no digest — the shape of a
+  // broken awk range or a moved file, which used to look exactly like working.
+  const settingsPath = path.join(dir, '.claude/settings.json');
+  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  settings.hooks.SessionStart[0].hooks[0].command = 'echo AGENT-INIT.md';
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  const row = line(run(dir, ['check']).out, 'session');
+  assert.match(row, /WARN/);
+  assert.match(row, /prints no digest/);
+});
+
+test('nothing a human reads at the terminal quotes a section number', () => {
+  // The settings table forbids asking in this document's vocabulary; the tool's own
+  // output was doing it anyway ("§6 is unguarded", "§12 slot"). Slot labels are data
+  // and keep their numbers; everything printed to a person does not.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const outputs = [
+    run(dir, ['init', '--agent=claude']).out,
+    run(dir, ['check']).out,
+    run(dir, ['update', '--force']).out,
+    run(dir, ['help']).out,
+  ];
+  for (const out of outputs) assert.doesNotMatch(out, /§\d/);
 });
 
 test('an agent with no session channel gets a marked digest block instead', () => {
