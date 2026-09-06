@@ -102,7 +102,7 @@ test('the summary is not green while anything is still amber', () => {
   assert.doesNotMatch(out, /All checks passed/);
 });
 
-test('init installs both managed files and records both in the lock', () => {
+test('init installs every managed file and records each in the lock', () => {
   const dir = repo({ 'package.json': { name: 'app' } });
   run(dir, ['init', '--agent=claude'], { mustPass: true });
   assert.ok(fs.existsSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md')));
@@ -113,6 +113,7 @@ test('init installs both managed files and records both in the lock', () => {
   assert.deepStrictEqual(Object.keys(lock.files).sort(), [
     'dev/flowpad/AGENT-INIT.md',
     'dev/flowpad/PRINCIPLES.md',
+    'dev/flowpad/TASK-DOC.md',
   ]);
 });
 
@@ -258,6 +259,20 @@ test('the closing questions say which file the answers go into', () => {
     out,
     /write the answers into the settings table at the end of dev\/flowpad\/AGENT-INIT\.md/,
   );
+});
+
+test('the task write-up format ships as a managed document', () => {
+  // A format that lived inside one agent's command layer was a second copy of a rule;
+  // as a sidecar it is installed, reinstalled when missing, and pointed at — never
+  // printed at session start, because it is read only when a task is written up.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const doc = path.join(dir, 'dev/flowpad/TASK-DOC.md');
+  assert.ok(fs.existsSync(doc));
+  assert.match(fs.readFileSync(doc, 'utf8'), /Verify against the code/);
+  assert.match(run(dir, ['context']).out, /TASK-DOC\.md/);
+  fs.rmSync(doc);
+  assert.match(run(dir, ['update']).out, /installed.*TASK-DOC\.md/);
 });
 
 test('the commit gate is judged by what it runs, not by whether a file exists', () => {

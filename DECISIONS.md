@@ -564,3 +564,34 @@ commit*, *the settings table*, *the digest*. Slot labels keep their numbers: the
 data the merge matches on, not prose. The `context` output and the digest block are
 addressed to an agent that is about to read the document, and keep theirs. A test now
 holds the line for `init`, `check`, `update` and `help`.
+
+### The write-up format of a finished task is a document, so it ships with the documents
+
+A format for rewriting a finished task's document — status first, a concrete scenario,
+one core sentence, decisions with reasons, technical detail last, every claim checked
+against the code — had been written into one agent's command layer, in one language,
+addressed to one person. It was a good format in the wrong container: a command is
+per-agent and per-machine, and a rule that lives there is taught again in the next
+project and drifts from the copy in the last one. That is Failure 2, the disease this
+package exists to cure, reproduced by the package's own author.
+
+So the format is now `protocol/TASK-DOC.md`, a third managed sidecar next to the
+protocol and the principles: installed by `init`, reinstalled by `update` when missing,
+guarded against local edits, pointed at by `context`. It is not printed at session
+start — it is read when a task is written up, which is why it is a pointer and not
+part of the digest. The agent's command layer keeps only what is genuinely its own:
+the trigger phrases, the language the report comes back in, and a pointer to the file.
+
+Two rules in the document were the author's and had to become everyone's. The body
+language is *the language this project writes its documents in* — not a fixed one —
+with quoted decisions kept in the language they were said in. And no person's name
+appears anywhere in a write-up; decisions are attributed as `Decision: "…"`. The
+format also says plainly that it applies to the document being written, not to every
+document that already exists: a retroactive rewrite rule was considered and rejected,
+for the same reason a bulk translation of task titles was rejected in a consuming
+workspace — a backlog of forced rewrites is work nobody asked for.
+
+The §10 command block was corrected in the same protocol revision: it led with the
+flag-laden `init --agent=… --wire` form that the README and `help` had already
+demoted, and a protocol that documents a different entry point from its own tool is a
+drift of its own.

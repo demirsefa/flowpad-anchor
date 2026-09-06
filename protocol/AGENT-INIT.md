@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 14
+version: 15
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -301,6 +301,11 @@ Answer in the language the question was asked in.
 **Task report:** Summary (one or two lines) · Still worth doing? · Priority and why ·
 Status (done / not done / partial, and what remains).
 
+**A finished task's write-up** — the document that outlives the task — follows
+`TASK-DOC.md`, installed next to this file: status and dates first, a concrete scenario
+and one core sentence, the decisions with their reasons, technical detail last, and
+every claim checked against the code before it is written down.
+
 **Bug report:** What was broken (one line) · Explanation (root cause: what happens and
 why) · Then either **Proposed fix** (not yet applied — propose, wait) or **Fix**
 (applied — what changed).
@@ -460,11 +465,15 @@ missing, and never touches it if it already exists. It also installs `PRINCIPLES
 put in place by it:
 
 ```
-npx flowpad init --agent=<claude|codex|cursor|gemini> --wire   # install + anchor + gate
-npx flowpad check                                              # the installation check
-npx flowpad update                                             # take a newer protocol
-npx flowpad guide list | guide add <stack>                     # language/framework guides
+npx flowpad init                              # install, anchor, then answer its offers
+npx flowpad check                             # the installation check
+npx flowpad update                            # take a newer protocol
+npx flowpad guide list | guide add <stack>    # language/framework guides
 ```
+
+`init` detects the agent from the instruction file already present and asks about the
+rest; `--agent=<name>` is for a repository with no instruction file yet, `--wire` for
+a script that cannot answer a prompt.
 
 The package is one way to install this document, not a requirement of it: everything
 above works if the files are copied by hand. What the tooling buys is the check —
@@ -481,6 +490,9 @@ Repeated rules drift, so these live elsewhere on purpose:
   operations rules**, such as never putting a secret on a command line → `PRINCIPLES.md`,
   installed alongside this one (§10). They apply to every session without being asked
   for, so unlike a stack guide there is no "open it when relevant": read it once, early.
+- **The write-up format of a finished task** → `TASK-DOC.md`, installed alongside
+  this one (§7). Read when a task document is being written or rewritten, not at
+  session start.
 - **Language and framework guides** → separate files, installed per repository
   alongside this one (§10), and **opening them is the agent's job (§2)**. They are kept
   apart from this document on purpose: a framework guide ages on the framework's clock,

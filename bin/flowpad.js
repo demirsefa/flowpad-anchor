@@ -39,6 +39,14 @@ const MANAGED = [
     src: path.join(SRC, '..', 'principles', 'CODE-PRINCIPLES.md'),
     dest: PRINCIPLES,
   },
+  // The write-up format for a finished task. A document, so it ships here rather than
+  // inside any one agent's command layer — a command that carried the format itself
+  // would be a second copy, and copies drift. Situational, so `context` points at it
+  // instead of printing it.
+  {
+    src: path.join(SRC, 'TASK-DOC.md'),
+    dest: `${PROTOCOL_DIR}/TASK-DOC.md`,
+  },
 ];
 const PROTOCOL_FILE = MANAGED[0].dest;
 
@@ -1849,6 +1857,7 @@ function context(root) {
   const pointers = [
     `full text: ${PROTOCOL_FILE}`,
     `coding principles: ${PRINCIPLES}`,
+    `finished-task write-up format: ${PROTOCOL_DIR}/TASK-DOC.md`,
   ];
   if (exists(path.join(root, CONTRACTS_DIR, 'README.md')))
     pointers.push(`contract index: ${CONTRACTS_DIR}/README.md`);
