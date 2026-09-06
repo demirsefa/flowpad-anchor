@@ -24,7 +24,9 @@
     "guides",
     "skills"
   ],
-  "bin": "bin/flowpad.js",
+  "bin": {
+    "flowpad": "bin/flowpad.js"
+  },
   "scripts": {
     "prepare": "husky",
     "test": "node --test test/cli.test.js test/neutrality.test.js",
