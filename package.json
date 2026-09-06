@@ -21,7 +21,8 @@
     "bin",
     "protocol",
     "principles",
-    "guides"
+    "guides",
+    "skills"
   ],
   "bin": "bin/flowpad.js",
   "scripts": {

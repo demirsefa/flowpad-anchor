@@ -37,7 +37,7 @@ function run(dir, args, opts = {}) {
       out: execFileSync(process.execPath, [CLI, ...args], {
         cwd: dir,
         encoding: 'utf8',
-        env: ENV,
+        env: { ...ENV, ...(opts['env'] || {}) },
       }),
     };
   } catch (err) {
@@ -273,6 +273,62 @@ test('the task write-up format ships as a managed document', () => {
   assert.match(run(dir, ['context']).out, /TASK-DOC\.md/);
   fs.rmSync(doc);
   assert.match(run(dir, ['update']).out, /installed.*TASK-DOC\.md/);
+});
+
+test('a ready-made command is offered, never installed uninvited, and managed once accepted', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  const skill = path.join(dir, '.claude/skills/task-doc/SKILL.md');
+  // No terminal: the offer prints a route and touches nothing — and records no answer.
+  const { out } = run(dir, ['init', '--agent=claude']);
+  assert.match(out, /Skills:.*\/task-doc.*skill add task-doc/);
+  assert.ok(!fs.existsSync(skill));
+  // update does not sneak an optional file in either.
+  run(dir, ['update', '--force']);
+  assert.ok(!fs.existsSync(skill));
+
+  // Asked for by name: installed, and from then on a managed file.
+  assert.match(
+    run(dir, ['skill', 'add', 'task-doc']).out,
+    /installed.*task-doc/,
+  );
+  assert.match(fs.readFileSync(skill, 'utf8'), /TASK-DOC\.md/);
+  const lock = JSON.parse(
+    fs.readFileSync(path.join(dir, 'dev/flowpad/.flowpad-lock.json'), 'utf8'),
+  );
+  assert.ok(lock.files['.claude/skills/task-doc/SKILL.md']);
+  fs.appendFileSync(skill, '\nLOCAL EDIT\n');
+  assert.match(run(dir, ['update']).out, /local edits.*task-doc/);
+});
+
+test('every offer can be answered yes at once, for a script', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude'], { env: { FLOWPAD_YES: '1' } });
+  assert.ok(fs.existsSync(path.join(dir, '.claude/skills/task-doc/SKILL.md')));
+  assert.ok(fs.existsSync(path.join(dir, '.git/hooks/pre-commit')));
+  assert.ok(fs.existsSync(path.join(dir, '.claude/settings.json')));
+  // Accepted: nothing left to offer next time.
+  assert.doesNotMatch(run(dir, ['update', '--force']).out, /Skills:/);
+});
+
+test('check offers the update only to a terminal, and only when behind', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  // Current: nothing to offer, even with every offer answered yes.
+  const current = run(dir, ['check'], { env: { FLOWPAD_YES: '1' } });
+  assert.doesNotMatch(current.out, /Updated\./);
+  // Behind: the version row warns; with no terminal that is all that happens.
+  const proto = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
+  fs.writeFileSync(
+    proto,
+    fs.readFileSync(proto, 'utf8').replace(/^version: \d+$/m, 'version: 1'),
+  );
+  const silent = run(dir, ['check']);
+  assert.match(line(silent.out, 'version'), /WARN/);
+  assert.doesNotMatch(silent.out, /Updated\./);
+  // A yes at the terminal runs the update right there.
+  const asked = run(dir, ['check'], { env: { FLOWPAD_YES: '1' } });
+  assert.match(asked.out, /Updated\./);
+  assert.match(line(run(dir, ['check']).out, 'version'), /PASS/);
 });
 
 test('the commit gate is judged by what it runs, not by whether a file exists', () => {

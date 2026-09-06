@@ -595,3 +595,33 @@ The §10 command block was corrected in the same protocol revision: it led with 
 flag-laden `init --agent=… --wire` form that the README and `help` had already
 demoted, and a protocol that documents a different entry point from its own tool is a
 drift of its own.
+
+### Nothing is updated or installed on the tool's own judgement — but the person is asked
+
+Two requests arrived together: *will it offer to keep the documents current, and will
+it offer the ready-made commands — without doing either by default?* Both land on the
+rule this package already had for every write (opt-in, offered once, default no) and
+extend it to the two places it did not yet reach.
+
+**Updating.** `check` could say *"installed v14, available v15 — run update"* and
+nothing more; a person reading that at a terminal then had to type the command the
+tool had just spelled out. Now, at a terminal only, after the rows have been printed
+and only when a version row is one that `update` would fix, `check` asks *"Update the
+protocol now?"*. Default no. A commit hook and an agent's shell have no terminal and
+see only the row, so no file is ever rewritten in the middle of a commit — the one
+place an automatic update would do real harm. An always-yes was considered and left
+out: it would be a second mechanism for a question that is cheap to answer each time.
+
+**Commands.** The task write-up format became a document (`TASK-DOC.md`); the
+command that applies it is agent-specific by nature, so it ships under `skills/<agent>/`
+and is the first thing this package writes that is not a document. That is exactly
+why it is the write with the most guards: never installed by `init` or `update` on
+their own (`optional` in the managed table), offered once at a terminal and the
+answer recorded, installable by name afterwards (`skill add`), and — once present —
+managed like every sidecar: refreshed by `update`, local edits detected, hashed in the
+lock. The command file itself carries no format: it points at `TASK-DOC.md`, so there
+is one copy of the rule and the command cannot drift from it.
+
+`FLOWPAD_YES=1` answers every offer at once. It exists for scripts — and for the test
+suite, which until now could reach the yes-branch of an offer only through the
+per-offer flags, and could not reach `check`'s new question at all.

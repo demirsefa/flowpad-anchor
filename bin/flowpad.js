@@ -47,6 +47,18 @@ const MANAGED = [
     src: path.join(SRC, 'TASK-DOC.md'),
     dest: `${PROTOCOL_DIR}/TASK-DOC.md`,
   },
+  // A ready-made command for an agent that has a command layer. `optional`: never
+  // installed uninvited — offered once at a terminal, or asked for by name — but once
+  // installed it is managed like every other sidecar: refreshed by `update`, local
+  // edits detected, recorded in the lock. `agent` keeps the offer to the agent whose
+  // layout it is; another agent never sees it.
+  {
+    src: path.join(SRC, '..', 'skills', 'claude', 'task-doc', 'SKILL.md'),
+    dest: '.claude/skills/task-doc/SKILL.md',
+    agent: 'claude',
+    optional: true,
+    name: 'task-doc',
+  },
 ];
 const PROTOCOL_FILE = MANAGED[0].dest;
 
@@ -483,6 +495,10 @@ const decode = (bytes) =>
 function ask(question) {
   // y/N prompt. Returns false on a non-interactive stdin so that automated runs never
   // destroy a file by accident — that is what --force is for.
+  // FLOWPAD_YES=1 answers every offer with yes: what --wire/--guides/--tasks do one
+  // by one, for a script that wants all of them — and the only way a test reaches the
+  // yes-branch of an offer, since tests run without a terminal.
+  if (process.env.FLOWPAD_YES === '1') return true;
   if (!process.stdin.isTTY) return false;
   process.stdout.write(`${question} [y/N] `);
   const answer = readLine();
@@ -981,6 +997,98 @@ function offerSession(root, agent, opts = {}) {
   );
 }
 
+// Re-record the lock after a write that changed an installed file's bytes — a stale
+// hash reads as "the user edited this" and makes `update` protect an edit nobody made.
+function refreshLock(root) {
+  const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
+  if (exists(lockPath))
+    fs.writeFileSync(
+      lockPath,
+      `${JSON.stringify(lockRecord(root), null, 2)}\n`,
+    );
+}
+
+const optionalFor = (agent) =>
+  MANAGED.filter((f) => f.optional && f.agent === agent);
+
+function installSkill(root, file, results) {
+  const abs = path.join(root, file.dest);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, read(file.src));
+  results.push([c.ok('installed'), `${file.dest} (/${file.name})`]);
+}
+
+// Ready-made commands, offered the way guides are: once, at a terminal, default no.
+// An agent's command layer is the one place this package writes something that is
+// not a document — so it is the one write that is never done on the package's own
+// judgement. Declined is recorded and never re-asked; `skill add` remains.
+function offerSkills(root, agent, opts = {}) {
+  if (!exists(path.join(root, PROTOCOL_FILE))) return;
+  const chosen = agent || detectAgent(root);
+  const missing = optionalFor(chosen).filter(
+    (f) => !exists(path.join(root, f.dest)),
+  );
+  if (!missing.length) return;
+  if (readOffers(root).skills) return; // already asked once
+  const names = missing.map((f) => `/${f.name}`).join(', ');
+  const accepted =
+    opts.skills ||
+    ask(
+      `\nInstall ${names} for ${chosen}? (${missing.map((f) => f.name).join(', ')}: a command that rewrites a finished task per TASK-DOC.md)`,
+    );
+  if (!process.stdin.isTTY && !opts.skills && process.env.FLOWPAD_YES !== '1') {
+    // No human was there to answer, so nothing was declined. Print, do not record.
+    console.log(
+      `\n${c.dim('Skills:')} ${names} available for ${chosen} — ${c.b(`npx flowpad skill add ${missing.map((f) => f.name).join(' ')}`)}`,
+    );
+    return;
+  }
+  recordOffer(root, 'skills', accepted ? 'accepted' : 'declined');
+  if (!accepted) return;
+  const results = [];
+  for (const file of missing) installSkill(root, file, results);
+  refreshLock(root);
+  for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
+}
+
+// `skill` — list what is on offer, or install by name regardless of any earlier answer.
+function skillCmd(root, sub, names) {
+  const agent = detectAgent(root);
+  const all = MANAGED.filter((f) => f.optional);
+  if (sub !== 'add') {
+    for (const f of all) {
+      const here = exists(path.join(root, f.dest));
+      console.log(
+        `  ${here ? c.ok('installed') : c.dim('available')}  /${f.name}  ${c.dim(`(${f.agent})`)}`,
+      );
+    }
+    if (!agent)
+      console.log(
+        c.dim('\nNo instruction file here, so no agent to install for.'),
+      );
+    return 0;
+  }
+  const results = [];
+  for (const name of names) {
+    const file = all.find((f) => f.name === name);
+    if (!file) {
+      console.log(
+        c.bad(`Unknown skill: ${name}.`),
+        `Known: ${all.map((f) => f.name).join(', ')}`,
+      );
+      return 1;
+    }
+    if (exists(path.join(root, file.dest))) {
+      results.push([c.dim('same'), `${file.dest} (already installed)`]);
+      continue;
+    }
+    installSkill(root, file, results);
+  }
+  refreshLock(root);
+  for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
+  return 0;
+}
+
 // The commit gate, offered the way the session channel is. Until this existed the gate
 // was reachable only through `--wire`: a bare `init` answered three offers and never
 // mentioned the fourth, then `check` warned about it with no route to fix it. Offered
@@ -1047,12 +1155,7 @@ function offerTaskSurface(root, opts = {}) {
   // Filling a slot changes the installed file, so the lock's hash of it is now stale —
   // and a stale hash reads as "the user edited this", which makes `update` protect an
   // edit nobody made. Re-record here rather than at every call site.
-  const lockPath = path.join(root, PROTOCOL_DIR, LOCK);
-  if (exists(lockPath))
-    fs.writeFileSync(
-      lockPath,
-      `${JSON.stringify(lockRecord(root), null, 2)}\n`,
-    );
+  refreshLock(root);
   console.log(
     `  ${c.ok('set')}  settings: Task surface → FlowPad · set it up with ${c.b('npx flowpad-mcp')}`,
   );
@@ -1091,7 +1194,7 @@ function init(root, force, opts = {}) {
   const slots = detectSlots(root);
   const installed = applySlots(protocolSrc, slots);
   writeFile(root, PROTOCOL_FILE, installed, force, results);
-  for (const file of MANAGED.slice(1))
+  for (const file of MANAGED.slice(1).filter((f) => !f.optional))
     writeFile(root, file.dest, read(file.src), force, results);
 
   anchorInto(root, results, opts.anchor);
@@ -1112,6 +1215,7 @@ function init(root, force, opts = {}) {
   offerCommitGate(root, opts);
   offerSession(root, opts.agent, opts);
   offerTaskSurface(root, opts);
+  offerSkills(root, opts.agent, opts);
 
   const reflex = REFLEXES[opts.agent];
   if (reflex)
@@ -1222,6 +1326,7 @@ function sessionStatus(root, protocol) {
 }
 
 function check(root) {
+  let behind = false; // a version row that `update` would fix; see the tail
   const rows = [];
   let failed = 0;
   const add = (level, name, detail) => {
@@ -1270,13 +1375,14 @@ function check(root) {
       'baseline',
       `${BASE} missing — \`update\` cannot show what it would drop`,
     );
-  else if (localV !== upstreamV)
+  else if (localV !== upstreamV) {
+    behind = true;
     add(
       'WARN',
       'version',
       `installed v${localV}, available v${upstreamV} — run \`npx flowpad update\`, then re-read it`,
     );
-  else if (
+  } else if (
     lock.files &&
     lock.files[PROTOCOL_FILE] &&
     lock.files[PROTOCOL_FILE].upstream &&
@@ -1285,6 +1391,7 @@ function check(root) {
     // The declared version is hand-maintained and was, in practice, forgotten while
     // the body changed across several releases. The recorded upstream hash cannot be
     // forgotten, so drift is detected from it and the version is only a label.
+    behind = true;
     add(
       'WARN',
       'version',
@@ -1486,6 +1593,13 @@ function check(root) {
 
   report(rows);
 
+  // The documents are never updated on the tool's own judgement — but a person at a
+  // terminal who has just been told the protocol is behind is asked, once, right
+  // here. Default no. A commit hook and an agent's shell have no terminal and see
+  // only the row, so nothing ever rewrites files in the middle of a commit.
+  if (behind && !failed && ask('\nUpdate the protocol now?'))
+    return update(root, false);
+
   return failed ? 1 : 0;
 }
 
@@ -1533,6 +1647,7 @@ function syncSidecars(root, force, lock) {
     const abs = path.join(root, file.dest);
     const upstream = read(file.src);
     if (!exists(abs)) {
+      if (file.optional) continue; // declined or never offered — not this command's call
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(abs, upstream);
       console.log(`  ${c.ok('installed')}  ${file.dest}`);
@@ -1644,6 +1759,7 @@ function update(root, force) {
   offerCommitGate(root);
   offerSession(root, detectAgent(root));
   offerTaskSurface(root);
+  offerSkills(root);
   return code;
 }
 
@@ -1884,6 +2000,7 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
                        ${c.dim('add <name>')} to install one
   ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
   ${c.b('npx flowpad wire-gate')}     run \`flowpad check\` before every commit
+  ${c.b('npx flowpad skill')}         ${c.dim('list')} ready-made agent commands on offer, ${c.dim('add <name>')} to install one
   ${c.b('npx flowpad context')}       print the session brief ${c.dim('(the digest + where the rest lives)')}
 
   ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
@@ -1892,6 +2009,8 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
                    without being asked ${c.dim('(init asks otherwise)')}
   ${c.dim('--guides')}         install the guides for the stacks detected here without asking
   ${c.dim('--tasks')}          answer the task-surface offer with yes without being asked
+  ${c.dim('--skills')}         answer the ready-made command offer with yes without being asked
+  ${c.dim('FLOWPAD_YES=1')}    answer every offer with yes ${c.dim('(for scripts)')}
   ${c.dim('--force')}          skip the overwrite prompt
 `);
 }
@@ -1913,11 +2032,19 @@ const anchor = agentName ? AGENT_FILES[agentName] : undefined;
 const wire = process.argv.includes('--wire');
 const guides = process.argv.includes('--guides');
 const tasks = process.argv.includes('--tasks');
+const skills = process.argv.includes('--skills');
 const root = repoRoot();
 
 switch (cmd) {
   case 'init':
-    init(root, force, { anchor, agent: agentName, wire, guides, tasks });
+    init(root, force, {
+      anchor,
+      agent: agentName,
+      wire,
+      guides,
+      tasks,
+      skills,
+    });
     break;
   case 'check':
     process.exit(check(root));
@@ -1937,6 +2064,9 @@ switch (cmd) {
     for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
     break;
   }
+  case 'skill':
+    process.exit(skillCmd(root, rest[0], rest.slice(1)));
+    break;
   case 'wire-gate': {
     const results = [];
     wireInto(root, results);

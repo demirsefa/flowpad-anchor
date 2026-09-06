@@ -59,16 +59,22 @@ npx flowpad update      # take a newer protocol, keeping the project's settings
 npx flowpad guide       # list stack guides; `guide add react` installs one
 npx flowpad wire-gate   # run `flowpad check` before every commit
 npx flowpad wire-session# load the protocol at every session start
+npx flowpad skill       # ready-made agent commands on offer; `skill add task-doc` installs one
 npx flowpad context     # print the session brief on stdout
 ```
 
 `init` detects what it can from the repository — the agent from the instruction file
 already there, the test command from the manifest, the contract index it just seeded —
-and asks about the rest. Whatever it cannot answer is left as a question in the
+and asks about the rest — including, where the agent has a command layer, a
+ready-made command (today: a `/task-doc` skill for Claude Code that rewrites a finished
+task's document to the shape `TASK-DOC.md` prescribes). Nothing is installed or updated
+on the tool's own judgement: every offer defaults to no, a declined offer is not asked
+again, and `check` at a terminal offers an update only after it has said the protocol
+is behind. Whatever it cannot answer is left as a question in the
 settings table, worded for the person who owns the project rather than in this
 document's vocabulary. Flags exist for scripts and agents that cannot answer a prompt:
-`--wire` says yes to the commit-gate and session-channel offers, `--guides` and
-`--tasks` to theirs, `--agent=<name>` names the agent when the repository has no
+`--wire` says yes to the commit-gate and session-channel offers, `--guides`,
+`--tasks` and `--skills` to theirs, `FLOWPAD_YES=1` to all of them, `--agent=<name>` names the agent when the repository has no
 instruction file yet.
 
 `check` is the part that matters. It verifies that the anchor line is still there, that
