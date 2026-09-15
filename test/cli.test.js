@@ -549,7 +549,7 @@ test('context names the guides and the contract index it can see', () => {
 });
 
 // --- §12 declares, `check` verifies -----------------------------------------
-// The line these three defend: an EMPTY slot is only a question for the human, but a
+// The line the tests below defend: an EMPTY slot is only a question for the human, but a
 // FILLED one is a promise, and a promise with nothing behind it is a dead pointer. That
 // is why this is not the agent-configuration audit DECISIONS.md rules out.
 
@@ -598,6 +598,60 @@ test('an unfilled command slot is a question, not a failure', () => {
   run(dir, ['init', '--agent=claude']);
   const { out } = run(dir, ['check']);
   assert.strictEqual(line(out, 'commands'), '');
+});
+
+test("no wins file means the question is asked, never answered on the human's behalf", () => {
+  // The regression this locks: install used to write `none yet` here, which is neither a
+  // question (nothing asks it again) nor a promise (nothing verifies it) — so §8's third
+  // step quietly did nothing in every repository that had not already started a file.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const settings = fs.readFileSync(
+    path.join(dir, 'dev/flowpad/AGENT-INIT.md'),
+    'utf8',
+  );
+  assert.doesNotMatch(settings, /none yet/);
+  assert.match(
+    line(run(dir, ['check']).out, 'slots'),
+    /Do you keep a file of what got shipped\?/,
+  );
+});
+
+test('a wins file §12 names must exist', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  fillSlot(dir, 'Where wins are recorded \\(§8\\)', '`dev/BRAG.md`');
+
+  const missing = line(run(dir, ['check']).out, 'wins');
+  assert.match(missing, /FAIL/);
+  assert.match(missing, /dev\/BRAG\.md/);
+
+  fs.mkdirSync(path.join(dir, 'dev'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'dev/BRAG.md'), '# Wins\n');
+  assert.match(line(run(dir, ['check']).out, 'wins'), /PASS/);
+});
+
+test('update drops the retired `none yet` placeholder and asks instead', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const file = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
+  fs.writeFileSync(
+    file,
+    fs
+      .readFileSync(file, 'utf8')
+      .replace(
+        /\| Where wins are recorded \(§8\) \|[^|]*\|/,
+        '| Where wins are recorded (§8) | none yet |',
+      )
+      // Rewind the version so `update` treats this as an older install.
+      .replace(/^version: \d+/m, 'version: 1'),
+  );
+  run(dir, ['update', '--force']);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /none yet/);
+  assert.match(
+    line(run(dir, ['check']).out, 'slots'),
+    /Do you keep a file of what got shipped\?/,
+  );
 });
 
 test('init closes by handing the agent the questions, not an order to fill slots', () => {

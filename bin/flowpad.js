@@ -571,7 +571,13 @@ function detectSlots(root) {
   );
   if (taskHome) slots['Task surface (§5)'] = `\`${taskHome}\``;
 
-  // Where wins are recorded — a file that exists, or an honest "not yet".
+  // Where wins are recorded. A file on disk answers this; its absence answers nothing.
+  // The deploy slot below may read absence as an answer because deployment machinery is
+  // a fact about the repository — but *every* repository starts without a wins file, so
+  // inferring "none" from that absence answers "no" everywhere and asks the question
+  // nowhere: the row reads settled, `check` stays quiet, and §8's third step becomes a
+  // permanent no-op. Two repositories sat at `none yet` for months and nobody was ever
+  // asked. An answer nobody gave is worse than an empty slot, which is §12's first rule.
   const wins = [
     'dev/BRAG.md',
     'dev/WINS.md',
@@ -579,7 +585,7 @@ function detectSlots(root) {
     'WINS.md',
     'dev/HIGHLIGHTS.md',
   ].find((f) => exists(here(f)));
-  slots['Where wins are recorded (§8)'] = wins ? `\`${wins}\`` : 'none yet';
+  if (wins) slots['Where wins are recorded (§8)'] = `\`${wins}\``;
 
   // Deployment: look for the machinery. Absence is a real answer, not a gap — many
   // repositories legitimately deploy nothing.
@@ -1465,6 +1471,21 @@ function check(root) {
     else add('PASS', 'commands', `${named.length} declared, all installed`);
   }
 
+  // The other slot that names something on disk. A wins file the settings table points
+  // at and nothing backs is a dead pointer — the same defect as a contract the index
+  // lists with no file behind it. A value that is not a path (`none`, "on the canvas")
+  // claims no file, so there is nothing to verify and it is taken on trust.
+  const winsSlot = slotValue('Where wins are recorded');
+  const winsFile = winsSlot && winsSlot.match(/[\w./-]+\.md\b/);
+  if (winsFile)
+    exists(path.join(root, winsFile[0]))
+      ? add('PASS', 'wins', winsFile[0])
+      : add(
+          'FAIL',
+          'wins',
+          `declared in the settings table but missing: ${winsFile[0]}`,
+        );
+
   // 4. contract index — the "anchored" half. Both directions matter: a row with no
   //    file is a dead link, a file with no row is a rule nobody will ever find.
   const cdir = path.join(root, CONTRACTS_DIR);
@@ -1803,6 +1824,12 @@ function updateProtocol(root, force) {
       `^\\| ${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`,
       'm',
     );
+    // `none yet` is this tool's own retired placeholder, not a human's answer: earlier
+    // versions wrote it into the wins slot whenever no such file existed, which silenced
+    // the question in every repository that had not started one. Carrying it across would
+    // preserve that silence forever, so it is dropped and the row goes back to being the
+    // question it always was.
+    if (m[2].trim() === 'none yet') continue;
     if (row.test(upstream)) slots[m[1].trim()] = m[2].trim();
   }
   // Detection improves between releases; an install made before it did should benefit

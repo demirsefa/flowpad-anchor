@@ -625,3 +625,25 @@ is one copy of the rule and the command cannot drift from it.
 `FLOWPAD_YES=1` answers every offer at once. It exists for scripts — and for the test
 suite, which until now could reach the yes-branch of an offer only through the
 per-offer flags, and could not reach `check`'s new question at all.
+
+### An answer nobody gave is worse than an empty slot
+
+`init` filled the wins slot from the filesystem: the path when a `BRAG.md`-shaped file
+was there, and the literal `none yet` when it was not. The second half was the mistake.
+The deploy slot may read absence as an answer because deployment machinery is a fact
+about the repository — but *every* repository starts without a wins file, so inferring
+"none" from that absence answers "no" in every project and asks the question in none of
+them. The row then reads settled, `check` has nothing to print, and §8's third step —
+record the win — is a no-op forever. Two installed repositories sat at `none yet` for
+months; the question surfaced only when a session happened to compare its project with
+one that had a file, never because the tool asked.
+
+`none yet` was also a third state the rest of the design has no room for: not `<TODO>`,
+so nothing asks, and not a claim about disk, so nothing verifies. *Empty asks, filled
+verifies* left no seat for it.
+
+So: absence fills nothing and the row stays the question it ships as, `update` drops the
+retired placeholder rather than carrying it across — the tool wrote that value, not a
+human, and preserving it would preserve the silence — and `check` now follows the wins
+slot onto disk when it does name a file, the same dead-pointer rule already applied to a
+declared command and to a contract the index lists.
