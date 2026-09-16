@@ -647,3 +647,21 @@ retired placeholder rather than carrying it across — the tool wrote that value
 human, and preserving it would preserve the silence — and `check` now follows the wins
 slot onto disk when it does name a file, the same dead-pointer rule already applied to a
 declared command and to a contract the index lists.
+
+### The wins log is a folder — one session, one file
+
+§8 asked for a durable sentence per session and said nothing about how it lands. Every
+project answered the same way: one reverse-chronological file, newest on top. Prepending
+is not a write — it is a read of the whole file, then a write of the whole file. The cost
+is the size of the log, and it grows with every entry that is added to it: a measured
+89-line log already cost ~1.3k tokens to open before a single line could be added, and at
+50 entries the read alone is ~8k. The agent pays it in the last minutes of a session,
+which is exactly when the remaining budget is thinnest.
+
+So §8 now names the mechanism, not just the destination: a new file per session, never a
+prepend, with the ordering carried by the file name (time, session id, topic) so that
+listing the folder is the chronology. Nothing has to be read to add to the log.
+
+The slot the project fills in is therefore a folder, and `init` detects one before it
+looks for a file. Existing single-file logs are not split: they stay inside the folder as
+the archive they became, and nothing is appended to them again.

@@ -578,14 +578,21 @@ function detectSlots(root) {
   // nowhere: the row reads settled, `check` stays quiet, and §8's third step becomes a
   // permanent no-op. Two repositories sat at `none yet` for months and nobody was ever
   // asked. An answer nobody gave is worse than an empty slot, which is §12's first rule.
+  // Folders come first: §8 records one session per file, so a project that already keeps
+  // a folder is on the current shape and a lone file is the older one it grew out of.
   const wins = [
+    'dev/brag',
+    'dev/wins',
+    'dev/highlights',
     'dev/BRAG.md',
     'dev/WINS.md',
     'BRAG.md',
     'WINS.md',
     'dev/HIGHLIGHTS.md',
   ].find((f) => exists(here(f)));
-  if (wins) slots['Where wins are recorded (§8)'] = `\`${wins}\``;
+  if (wins)
+    slots['Where wins are recorded (§8)'] =
+      `\`${wins}${wins.endsWith('.md') ? '' : '/'}\``;
 
   // Deployment: look for the machinery. Absence is a real answer, not a gap — many
   // repositories legitimately deploy nothing.

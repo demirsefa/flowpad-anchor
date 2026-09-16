@@ -613,7 +613,25 @@ test("no wins file means the question is asked, never answered on the human's be
   assert.doesNotMatch(settings, /none yet/);
   assert.match(
     line(run(dir, ['check']).out, 'slots'),
-    /Do you keep a file of what got shipped\?/,
+    /Do you keep a record of what got shipped\?/,
+  );
+});
+
+test('a wins folder answers the slot before a lone file does', () => {
+  // §8 records one session per file, so the folder is the current shape; a repository
+  // carrying both is one that grew out of the single file and kept it as the archive.
+  const dir = repo({ 'package.json': { name: 'app' } });
+  fs.mkdirSync(path.join(dir, 'dev/brag'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'dev/brag/BRAG.md'), '# Wins\n');
+  fs.writeFileSync(path.join(dir, 'dev/BRAG.md'), '# Wins\n');
+  run(dir, ['init', '--agent=claude']);
+  const settings = fs.readFileSync(
+    path.join(dir, 'dev/flowpad/AGENT-INIT.md'),
+    'utf8',
+  );
+  assert.match(
+    settings,
+    /\| Where wins are recorded \(§8\) \| `dev\/brag\/` \|/,
   );
 });
 
@@ -650,7 +668,7 @@ test('update drops the retired `none yet` placeholder and asks instead', () => {
   assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /none yet/);
   assert.match(
     line(run(dir, ['check']).out, 'slots'),
-    /Do you keep a file of what got shipped\?/,
+    /Do you keep a record of what got shipped\?/,
   );
 });
 

@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 15
+version: 16
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -355,7 +355,11 @@ signals a wrap-up — before ending:
    and ask whether to open tasks.
 2. **Update tasks** touched this session; archive what is genuinely finished (§5).
 3. **Record the win** — if real engineering happened, write one durable, quantitative
-   sentence into wherever the project keeps them. Skip for trivial sessions.
+   sentence into wherever the project keeps them (§12). **One session, one new file** —
+   never prepend to an existing entry. The file name carries the order and the identity:
+   time, then the session's id, then the topic. Appending to a single reverse-chronological
+   file means reading all of it before every entry, and that cost grows with the log; a new
+   file is a pure write. Skip for trivial sessions.
 4. **Commit** — ask whether to commit the changes (§6).
 5. **Check understanding** — if the session was structural, ask the human one or two
    pointed questions about what changed. Skip for mechanical sessions.
@@ -517,7 +521,7 @@ wrong one looks settled and gets obeyed.
 
 Installation answers what the repository can answer — including answering `none`,
 which is a real answer and not a gap: plenty of repositories deploy nothing and keep no
-wins file. Anything it filled by inference says so in the cell, so a human can correct
+record of what shipped. Anything it filled by inference says so in the cell, so a human can correct
 it at a glance. **Often nothing is left to ask.**
 
 **Assume the human has never read this file.** Someone installed the protocol; that
@@ -553,7 +557,7 @@ question is theirs. Then write the answers in as they arrive, and carry on.
 | Test command | `<TODO>` — ask: *How do you run the tests?* |
 | Session summary format (§7) | `default` — filled in; a project wanting another shape replaces this |
 | Agent commands (§10) | `<TODO>` — ask: *Are there commands you type to get me to do things here?* (detected from the agent's command folder when there are any) |
-| Where wins are recorded (§8) | `<TODO>` — ask: *Do you keep a file of what got shipped?* |
+| Where wins are recorded (§8) | `<TODO>` — ask: *Do you keep a record of what got shipped?* (a folder, one file per session — §8; e.g. `dev/brag/`) |
 | Additional project rules | `<TODO>` — ask: *Anything else about this project I should know up front?* |
 
 ---
