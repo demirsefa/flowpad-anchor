@@ -27,6 +27,8 @@ because each one is a rule an agent can be held to, not an essay.
 - **Split by meaning, and find the balance.** Each file or module should be one coherent
   responsibility — a reader should be able to guess its contents from its name. Do not
   shatter code into ten-line files, and do not pile unrelated things into one large one.
+  A file holding nothing but one small function is not a unit — it reads better inside its
+  caller, because every extra file costs a lookup before it costs a line.
   Prefer units that can move as a whole, so renames and splits stay clean. What this buys:
   smaller diffs, fewer merge conflicts, and file names you can navigate by.
 
@@ -34,8 +36,11 @@ because each one is a rule an agent can be held to, not an essay.
   guideline (file length, splitting, extracting a shared helper, generalising duplicated
   config) is the same trade-off: modelling versus overkill. Generalise repeated logic when
   it removes *real* duplication; do not abstract a one-off — a shared package for five
-  lines is overkill. Rough calibration: a file up to a thousand lines is tolerable, but
-  aim well below that; move a genuinely reusable helper into a util, while a hundred tiny
+  lines is overkill. Rough calibration: aim for a few hundred lines per file; a thousand is
+  the point where it has stopped being one unit and splitting is no longer a judgement
+  call. "Split as much as possible" is the wrong reading of this rule — the axis is
+  meaning, not count, and a codebase of tiny files is as unreadable as one of huge ones.
+  Move a genuinely reusable helper into a util, while a hundred tiny
   single-use helpers may read better inline. The target is a structure both a human and an
   agent can take in quickly.
 
