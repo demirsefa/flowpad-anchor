@@ -155,12 +155,21 @@ function repoRoot() {
   }
 }
 
+// Inside a commit hook git exports where *its* repository is. Left in place, a call aimed
+// at another repository with `-C` silently reads — or writes — the hooked one instead.
+const GIT_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([k]) => !['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'].includes(k),
+  ),
+);
+
 function gitBranch(root) {
   try {
     return execFileSync(
       'git',
       ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'],
       {
+        env: GIT_ENV,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       },
@@ -507,7 +516,9 @@ function ask(question) {
 
 // ---- §12 slots -------------------------------------------------------------
 
-function slotOf(text, label) {
+// The raw cell, backticks and all — `branchesIn` needs them to tell a branch name from
+// the prose around it.
+function slotCell(text, label) {
   const row = text.match(
     new RegExp(
       `^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^|]*\\| ([^|]+) \\|$`,
@@ -515,8 +526,21 @@ function slotOf(text, label) {
     ),
   );
   const v = row && row[1].trim();
-  return !v || v.includes('<TODO>') ? null : v.replace(/`/g, '').trim();
+  return !v || v.includes('<TODO>') ? null : v;
 }
+
+function slotOf(text, label) {
+  const v = slotCell(text, label);
+  return v && v.replace(/`/g, '').trim();
+}
+
+// Branch names are the backticked words of the cell: a workspace may name one base per
+// kind of repository ("code repos: `dev` · notes: `main`").
+const branchesIn = (cell) =>
+  cell ? [...cell.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]) : [];
+
+const isPrModel = (text) =>
+  /^pr\b/i.test(slotOf(text, 'Branching model') || '');
 
 const isNone = (v) => /^none$/i.test(v);
 
@@ -550,8 +574,10 @@ function detectSlots(root) {
   const slots = {};
   const here = (...p) => path.join(root, ...p);
   const branch = gitBranch(root);
-  if (branch && branch !== 'HEAD')
-    slots['Working branch (§6)'] = `\`${branch}\``;
+  if (branch && branch !== 'HEAD') slots['Base branch (§6)'] = `\`${branch}\``;
+  // The default pattern, so the row is never a question; it only matters under `pr`.
+  slots['Branch name (§6)'] =
+    '`chat/YYYY-MM-DD-<slug>` — default; used only by the `pr` model';
 
   if (exists(here(CONTRACTS_DIR, 'README.md')))
     slots['Contract index'] = `\`${CONTRACTS_DIR}/README.md\``;
@@ -837,12 +863,19 @@ function wireInto(root, results) {
 // `npm run anchor` count: that is the script `wire-gate` adds. Shared by `check` and
 // the offer so the two can never disagree.
 function gateStatus(root) {
+  const { hook, body } = preCommit(root);
+  return { hook, runsCheck: hook !== null && RUNS_CHECK.test(body) };
+}
+
+// The pre-commit hook git will actually run for this repository, and its body.
+function preCommit(root) {
   let hooksPath = null;
   try {
     hooksPath = execFileSync(
       'git',
       ['-C', root, 'config', '--get', 'core.hooksPath'],
       {
+        env: GIT_ENV,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       },
@@ -855,11 +888,111 @@ function gateStatus(root) {
     ? path.resolve(root, hooksPath.replace(/\/_$/, ''))
     : path.join(root, '.git', 'hooks');
   const hook = path.join(hookDir, 'pre-commit');
-  if (!exists(hook)) return { hook: null, runsCheck: false };
-  return {
-    hook: path.relative(root, hook),
-    runsCheck: RUNS_CHECK.test(read(hook)),
+  if (!exists(hook)) return { hook: null, body: '' };
+  return { hook: path.relative(root, hook), body: read(hook) };
+}
+
+const RUNS_GUARD = /\bflowpad(@\S+)?\s+guard-branch\b/;
+
+// The repositories a project covers: the root, plus every direct child that is a git
+// repository of its own — a workspace usually keeps its code repos one level down, each
+// with its own branches and its own hook. Dot-folders are skipped: that is where
+// worktrees live, and they are copies, not more repositories.
+function repos(root) {
+  const children = fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter(
+      (e) =>
+        e.isDirectory() &&
+        !e.name.startsWith('.') &&
+        e.name !== 'node_modules' &&
+        exists(path.join(root, e.name, '.git')),
+    )
+    .map((e) => path.join(root, e.name));
+  return [root, ...children];
+}
+
+const repoLabel = (root, repo) =>
+  repo === root ? path.basename(root) : path.relative(root, repo);
+
+// How far a repository's local base is from origin's copy of it, by the refs of the last
+// fetch — no network, because this runs inside the commit hook. The base is the one the
+// checkout is on when it is one of the named bases, otherwise the first named base that
+// exists on both sides. null when there is nothing to compare.
+function baseDistance(repo, names) {
+  const git = (...args) =>
+    execFileSync('git', ['-C', repo, ...args], {
+      env: GIT_ENV,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  const both = (n) => {
+    try {
+      git('rev-parse', '--verify', '-q', `refs/heads/${n}`);
+      git('rev-parse', '--verify', '-q', `refs/remotes/origin/${n}`);
+      return true;
+    } catch {
+      return false;
+    }
   };
+  const current = gitBranch(repo);
+  const base =
+    names.includes(current) && both(current) ? current : names.find(both);
+  if (!base) return null;
+  const [ahead, behind] = git(
+    'rev-list',
+    '--left-right',
+    '--count',
+    `${base}...origin/${base}`,
+  )
+    .split(/\s+/)
+    .map(Number);
+  return { base, ahead, behind };
+}
+
+// The installed protocol nearest above `start`. The guard runs in each code repository's
+// own hook, and in a workspace those sit one level below the folder the protocol is in.
+function protocolAbove(start) {
+  for (let dir = start; ; dir = path.dirname(dir)) {
+    const file = path.join(dir, PROTOCOL_FILE);
+    if (exists(file)) return file;
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
+// Commit-time half of the `pr` model: no commit lands on the base branch, or on the
+// production branch, directly. Without it the two models mix silently — commits made
+// straight on a local base never reach the remote, merged pull requests never reach the
+// local base, and the two drift apart until someone notices a feature missing.
+function guardBranch(root) {
+  const file = protocolAbove(root);
+  if (!file) {
+    console.error(
+      `flowpad guard-branch: no ${PROTOCOL_FILE} here or above — nothing to enforce`,
+    );
+    return 0;
+  }
+  const text = read(file);
+  if (!isPrModel(text)) return 0;
+  const branch = gitBranch(root);
+  const protectedNames = [
+    ...new Set([
+      ...branchesIn(slotCell(text, 'Base branch')),
+      'main',
+      'master',
+    ]),
+  ];
+  if (!branch || !protectedNames.includes(branch)) return 0;
+  const pattern = slotOf(text, 'Branch name');
+  console.error(
+    c.bad(
+      `Refused: no commits on \`${branch}\` — this project merges through pull requests.`,
+    ),
+  );
+  console.error(
+    `  Commit on a branch of your own${pattern ? ` (${pattern.split(' ')[0]})` : ''}, in a worktree of its own, and open a pull request.`,
+  );
+  return 1;
 }
 
 // Which instruction files this repository actually has, so the digest lands in the file
@@ -1550,6 +1683,50 @@ function check(root) {
     );
   else add('PASS', 'commit-gate', gate.hook);
 
+  // 5b. branches. The guard only exists under `pr`; the distance is worth seeing in
+  //     either model, because the failure it shows is silent in both.
+  const all = repos(root);
+  const label = (r) => repoLabel(root, r);
+  if (isPrModel(local)) {
+    const unguarded = all.filter((r) => !RUNS_GUARD.test(preCommit(r).body));
+    unguarded.length
+      ? add(
+          'WARN',
+          'branch-guard',
+          `commits on the base branch are not refused in: ${unguarded.map(label).join(', ')} — add \`npx flowpad guard-branch\` to the pre-commit hook`,
+        )
+      : add(
+          'PASS',
+          'branch-guard',
+          `${all.length} repo(s) refuse commits on the base branch`,
+        );
+  }
+  const bases = branchesIn(slotCell(local, 'Base branch'));
+  const distances = bases.length
+    ? all.map((r) => [r, baseDistance(r, bases)]).filter(([, d]) => d)
+    : [];
+  if (distances.length) {
+    // Under `solo`, being ahead is just the moment between a commit and its push;
+    // behind is never normal. Under `pr`, ahead means commits that skipped review.
+    const off = distances.filter(
+      ([, d]) => d.behind || (d.ahead && isPrModel(local)),
+    );
+    const shown = distances.filter(([, d]) => d.ahead || d.behind);
+    const describe = ([r, d]) =>
+      `${label(r)} \`${d.base}\` ${d.ahead} ahead, ${d.behind} behind`;
+    off.length
+      ? add(
+          'WARN',
+          'base-sync',
+          `${shown.map(describe).join(' · ')} (as of the last fetch) — fetch, then fast-forward the local base`,
+        )
+      : add(
+          'PASS',
+          'base-sync',
+          `${distances.length} repo(s) level with origin${shown.length ? ` except unpushed: ${shown.map(describe).join(' · ')}` : ''} (as of the last fetch)`,
+        );
+  }
+
   // 6. guides — two failure modes, and the first one used to be invisible. A stale
   //    guide is dangerous because an agent applies it with full confidence; a *missing*
   //    one is worse, because nothing in the session ever mentions the stack at all.
@@ -1791,6 +1968,9 @@ function update(root, force) {
   return code;
 }
 
+// A slot whose label changed between versions, old → new, so its answer is not lost.
+const RENAMED_SLOTS = { 'Working branch (§6)': 'Base branch (§6)' };
+
 function updateProtocol(root, force) {
   const installedPath = path.join(root, PROTOCOL_DIR, 'AGENT-INIT.md');
   if (!exists(installedPath)) {
@@ -1827,8 +2007,9 @@ function updateProtocol(root, force) {
   // whole reason this command can be safe to run.
   const slots = {};
   for (const m of local.matchAll(/^\| ([^|]+?) \| (?!`<TODO>`)([^|]+) \|$/gm)) {
+    const label = RENAMED_SLOTS[m[1].trim()] || m[1].trim();
     const row = new RegExp(
-      `^\\| ${m[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`,
+      `^\\| ${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\|[^|]*<TODO>[^|]*\\|$`,
       'm',
     );
     // `none yet` is this tool's own retired placeholder, not a human's answer: earlier
@@ -1837,7 +2018,7 @@ function updateProtocol(root, force) {
     // preserve that silence forever, so it is dropped and the row goes back to being the
     // question it always was.
     if (m[2].trim() === 'none yet') continue;
-    if (row.test(upstream)) slots[m[1].trim()] = m[2].trim();
+    if (row.test(upstream)) slots[label] = m[2].trim();
   }
   // Detection improves between releases; an install made before it did should benefit
   // too. Anything the human already filled wins over what we can infer.
@@ -2036,6 +2217,8 @@ ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
   ${c.b('npx flowpad wire-gate')}     run \`flowpad check\` before every commit
   ${c.b('npx flowpad skill')}         ${c.dim('list')} ready-made agent commands on offer, ${c.dim('add <name>')} to install one
   ${c.b('npx flowpad context')}       print the session brief ${c.dim('(the digest + where the rest lives)')}
+  ${c.b('npx flowpad guard-branch')}  for a commit hook: refuse a commit on the base branch when work
+                       merges through pull requests ${c.dim('(exit 1)')}
 
   ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
                    file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
@@ -2091,6 +2274,9 @@ switch (cmd) {
     break;
   case 'context':
     process.exit(context(root));
+    break;
+  case 'guard-branch':
+    process.exit(guardBranch(root));
     break;
   case 'wire-session': {
     const results = [];
