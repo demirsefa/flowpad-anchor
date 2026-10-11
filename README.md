@@ -61,6 +61,7 @@ npx flowpad wire-gate   # run `flowpad check` before every commit
 npx flowpad wire-session# load the protocol at every session start
 npx flowpad skill       # ready-made agent commands on offer; `skill add task-doc` installs one
 npx flowpad context     # print the session brief on stdout
+npx flowpad guard-branch # in a commit hook: refuse commits on the base branch under the `pr` model
 ```
 
 `init` detects what it can from the repository — the agent from the instruction file

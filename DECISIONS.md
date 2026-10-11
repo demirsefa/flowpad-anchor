@@ -665,3 +665,38 @@ listing the folder is the chronology. Nothing has to be read to add to the log.
 The slot the project fills in is therefore a folder, and `init` detects one before it
 looks for a file. Existing single-file logs are not split: they stay inside the folder as
 the archive they became, and nothing is appended to them again.
+
+### Branching is `solo` or `pr`, and `pr` comes with a sync step and a guard
+
+The protocol said one thing about branches in every model: an agent never opens one. A
+workspace then adopted a branch-and-pull-request-per-session rule in its own instruction
+files while its settings table still said "one branch — all work lands on `dev`". Sessions
+that read the table committed straight to the local `dev` and never pushed; sessions that
+read the other rule opened pull requests that were merged on the remote. Nothing brought
+merged work back to the local `dev`, and nothing took the direct commits up. Five
+repositories drifted: one was 38 commits behind its remote and 4 ahead, another 28 ahead,
+and the person running the game from the local checkout could not see features that had
+been merged for days.
+
+Two rules, each sensible, and no step that joined them. So the model became a setting with
+two values, and `pr` is spelled out with everything it needs to be safe:
+
+- **A worktree per session.** Sessions share a checkout; one switching it to its own branch
+  takes everyone else's uncommitted work and next commit with it.
+- **A sync at session start, fast-forward only.** That is the only moment the sync is
+  useful — a new branch must start from the current base, and at session end the pull
+  request is not merged yet. A refused fast-forward is the mixing itself becoming visible,
+  so it is reported, never merged or rebased away.
+- **A guard in the commit hook** (`flowpad guard-branch`), because the mixing was silent
+  and an intent-only rule is what produced it. It reads the protocol from the folder above,
+  since in a workspace the code repositories sit one level below it.
+- **A `base-sync` row in `check`**, from the refs of the last fetch, so a drift shows up the
+  next time anyone commits. Under `solo` only *behind* warns — *ahead* is the normal gap
+  between a commit and its push.
+
+Who merges is not a setting. Under either model it is a human, and a slot would only offer
+a place to write the other answer.
+
+The working-branch slot was renamed to *Base branch*, since under `pr` the branch a session
+commits to is not the one work lands on; `update` carries the old answer across.
+

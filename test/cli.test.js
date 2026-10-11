@@ -570,12 +570,9 @@ test('check prints the question to ask, not the slot label', () => {
   const { out } = run(dir, ['check']);
   assert.match(line(out, 'slots'), /WARN/);
   // The human-language wording, quoted and ready to use...
-  assert.match(
-    line(out, 'slots'),
-    /"Which branch do you commit to day to day\?"/,
-  );
+  assert.match(line(out, 'slots'), /"Which branch does finished work land on/);
   // ...and not this tool's vocabulary, which is what §12 forbids quoting at a human.
-  assert.doesNotMatch(line(out, 'slots'), /Working branch \(§6\)/);
+  assert.doesNotMatch(line(out, 'slots'), /Base branch \(§6\)/);
 });
 
 test('a command §12 declares must exist; `none` is a real answer', () => {
@@ -681,7 +678,7 @@ test('init closes by handing the agent the questions, not an order to fill slots
   const { out } = run(dir, ['init', '--agent=claude']);
   const tail = out.slice(out.indexOf('Next:'));
   assert.match(tail, /question\(s\) for the human/);
-  assert.match(tail, /Which branch do you commit to day to day\?/);
+  assert.match(tail, /Which branch does finished work land on/);
   assert.doesNotMatch(
     tail,
     /\bfill\b/i,
@@ -738,4 +735,146 @@ test('every unanswered slot yields a question, even one that is normally detecte
     /\bslot\b/i,
     `this tool's vocabulary leaked into: ${asked}`,
   );
+});
+
+// --- branching models ---------------------------------------------------------
+// The `pr` model is only real if a commit on the base branch is refused and a local base
+// drifting from its remote is visible — the two models were once mixed in one workspace
+// and the local base silently fell dozens of commits behind while gaining its own.
+
+const GIT_ENV = {
+  ...ENV,
+  GIT_AUTHOR_NAME: 't',
+  GIT_AUTHOR_EMAIL: 't@t',
+  GIT_COMMITTER_NAME: 't',
+  GIT_COMMITTER_EMAIL: 't@t',
+};
+const git = (dir, ...args) =>
+  execFileSync('git', ['-C', dir, ...args], { env: GIT_ENV, encoding: 'utf8' });
+const commit = (dir, name) => {
+  fs.writeFileSync(path.join(dir, name), name);
+  git(dir, 'add', name);
+  git(dir, 'commit', '-q', '-m', name);
+};
+
+const setModel = (dir, model) => {
+  const file = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
+  fs.writeFileSync(
+    file,
+    fs
+      .readFileSync(file, 'utf8')
+      .replace(
+        /^\| Branching model.*$/m,
+        `| Branching model (§6) | ${model} |`,
+      ),
+  );
+};
+
+// A repository on `dev` with one commit, the protocol installed, and the model set.
+function branchRepo(model) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
+  git(dir, 'init', '-q', '-b', 'dev');
+  commit(dir, 'a');
+  run(dir, ['init', '--agent=claude']);
+  if (model) setModel(dir, model);
+  return dir;
+}
+
+test('the base branch is detected and the branch name ships with a default', () => {
+  const body = fs.readFileSync(
+    path.join(branchRepo(), 'dev/flowpad/AGENT-INIT.md'),
+    'utf8',
+  );
+  assert.match(body, /\| Base branch \(§6\) \| `dev` \|/);
+  assert.match(body, /\| Branch name \(§6\) \| `chat\/YYYY-MM-DD-<slug>`/);
+});
+
+test('guard-branch refuses a commit on the base under `pr`, and only there', () => {
+  const pr = branchRepo('pr');
+  const refused = run(pr, ['guard-branch']);
+  assert.strictEqual(refused.code, 1);
+  assert.match(refused.out, /no commits on `dev`/);
+  git(pr, 'checkout', '-q', '-b', 'main');
+  assert.strictEqual(run(pr, ['guard-branch']).code, 1);
+  git(pr, 'checkout', '-q', '-b', 'chat/2026-10-11-x');
+  assert.strictEqual(run(pr, ['guard-branch']).code, 0);
+
+  assert.strictEqual(run(branchRepo('solo'), ['guard-branch']).code, 0);
+});
+
+test('guard-branch in a child repository reads the protocol above it', () => {
+  const root = branchRepo('pr');
+  const child = path.join(root, 'api');
+  fs.mkdirSync(child);
+  git(child, 'init', '-q', '-b', 'dev');
+  commit(child, 'a');
+  assert.strictEqual(run(child, ['guard-branch']).code, 1);
+});
+
+test('under `pr`, check names every repository whose hook does not run the guard', () => {
+  const root = branchRepo('pr');
+  const child = path.join(root, 'api');
+  fs.mkdirSync(child);
+  git(child, 'init', '-q', '-b', 'dev');
+  const hook = (dir) => path.join(dir, '.git/hooks/pre-commit');
+  fs.writeFileSync(hook(root), '#!/bin/sh\nnpx flowpad guard-branch\n');
+
+  const warned = line(run(root, ['check']).out, 'branch-guard');
+  assert.match(warned, /WARN/);
+  assert.match(warned, /\bapi\b/);
+  assert.doesNotMatch(warned, new RegExp(path.basename(root)));
+
+  fs.writeFileSync(hook(child), '#!/bin/sh\nnpx flowpad guard-branch\n');
+  assert.match(line(run(root, ['check']).out, 'branch-guard'), /PASS/);
+  assert.strictEqual(
+    line(run(branchRepo('solo'), ['check']).out, 'branch-guard'),
+    '',
+  );
+});
+
+test('check shows a local base that drifted from origin', () => {
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-remote-'));
+  git(remote, 'init', '-q', '--bare');
+  const dir = branchRepo('solo');
+  git(dir, 'remote', 'add', 'origin', remote);
+  git(dir, 'push', '-q', 'origin', 'dev');
+  git(dir, 'fetch', '-q', 'origin');
+  assert.match(line(run(dir, ['check']).out, 'base-sync'), /PASS.*level/);
+
+  // Ahead only: under `solo` that is a commit not pushed yet, under `pr` it skipped review.
+  commit(dir, 'b');
+  assert.match(line(run(dir, ['check']).out, 'base-sync'), /PASS.*1 ahead/);
+  setModel(dir, 'pr');
+  assert.match(line(run(dir, ['check']).out, 'base-sync'), /WARN.*1 ahead/);
+
+  // Behind: a merged pull request the local base never received.
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-clone-'));
+  git(other, 'clone', '-q', '-b', 'dev', remote, '.');
+  commit(other, 'c');
+  git(other, 'push', '-q', 'origin', 'dev');
+  git(dir, 'fetch', '-q', 'origin');
+  assert.match(
+    line(run(dir, ['check']).out, 'base-sync'),
+    /WARN.*1 ahead, 1 behind/,
+  );
+});
+
+test('update carries the old working-branch answer into the base-branch row', () => {
+  const dir = repo({ 'package.json': { name: 'app' } });
+  run(dir, ['init', '--agent=claude']);
+  const file = path.join(dir, 'dev/flowpad/AGENT-INIT.md');
+  fs.writeFileSync(
+    file,
+    fs
+      .readFileSync(file, 'utf8')
+      .replace(
+        /^\| Base branch \(§6\) \|.*$/m,
+        '| Working branch (§6) | `trunk` |',
+      )
+      .replace(/^version: \d+/m, 'version: 1'),
+  );
+  run(dir, ['update', '--force']);
+  const body = fs.readFileSync(file, 'utf8');
+  assert.match(body, /\| Base branch \(§6\) \| `trunk` \|/);
+  assert.doesNotMatch(body, /Working branch/);
 });

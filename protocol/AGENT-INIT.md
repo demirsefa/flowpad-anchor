@@ -1,7 +1,7 @@
 # AGENT-INIT — how work is done in this repository
 
 ```
-version: 16
+version: 17
 kind:    working protocol (advice, not law)
 scope:   agent-neutral — Claude Code, Codex, Cursor, Gemini, …
 install: installed by `npx flowpad init` into dev/flowpad/
@@ -51,8 +51,10 @@ rest is reference, opened when relevant.*
    line, one at a time, in the human's words. A question you park instead of asking is a
    decision you already made: record the assumption where the decision lives, never in a
    queue of its own. (§4)
-6. **Branching and release are project settings (§12), not things to infer.** An agent
-   never opens a branch on its own, and never ships — it prepares; a human releases. In
+6. **Branching and release are project settings (§12), not things to infer.** Solo: work
+   lands on the base branch, no new branches. Pull requests: each session works on its
+   own branch in its own worktree, off a freshly synced base, and never commits to the
+   base. Either way an agent never merges or ships — it prepares; a human releases. In
    some projects a push is already a deploy. (§6)
 7. **Never bypass the commit gate.** Fix the error the hook found. (§6)
 8. **Report, don't narrate.** State what broke, why, and what changed. (§7)
@@ -119,7 +121,11 @@ Before writing code:
    one shot what you would otherwise have to remember to look for: an unfilled setting,
    a contract missing from the index, a missing stack guide, a protocol that has moved
    on upstream.
-5. **Confirm you are on the working branch** (§6). If not, switch first.
+5. **Get onto the right branch** (§6). Solo: confirm you are on the base branch, and
+   switch if not. Pull requests: sync the base first — fetch, then fast-forward the
+   local base to its remote — and start your own branch from it, in a worktree of its
+   own. If the fast-forward is refused, the local base holds commits the remote does
+   not: stop and tell the human, do not merge or rebase it away.
 6. **Tell the human where things stand** — three to five lines: current state, what this
    session is about, any open question. Then start.
 
@@ -265,15 +271,16 @@ project setting (§12).
 **These hold in every model** — they are what an agent must respect regardless of how
 the project branches:
 
-- **An agent never opens a branch or worktree on its own initiative.** If a session
-  starts on the wrong branch, say so and switch; do not invent a new one.
+- **Which branching model is in use is a project setting (§12) — read it, do not infer
+  it** from the branch names you happen to see. If the slot is empty, ask.
+- **An agent opens a branch only when the model says so**, named the way §12 says.
+  Solo: never. Pull requests: one per session (below). Never invent one beyond that.
 - **How changes reach production is a project setting (§12) — read it, do not infer
   it.** Fast-forward promotion, squash-merge, release tags, a pipeline triggered from
-  review: all of them are legitimate, and which one is in use is not something to
-  deduce from the branch names you happen to see.
-- **Releasing is not the agent's move.** Whatever the chain is, your part ends at a
-  prepared change; a human decides when it ships (§4). In some projects a push is
-  already a deploy — assume that until told otherwise.
+  review: all of them are legitimate.
+- **Releasing is not the agent's move, and neither is merging.** Whatever the chain is,
+  your part ends at a prepared change; a human decides when it lands and when it ships
+  (§4). In some projects a push is already a deploy — assume that until told otherwise.
 - **Deployment carries code, not server configuration.** If a release needs a new
   environment variable, that is a separate manual step — forget it and the deploy is
   quietly half-applied.
@@ -282,17 +289,34 @@ the project branches:
 - Keep commit messages short — a title and at most a line or two — and group changes
   logically rather than piling unrelated ones together.
 
-**Which branching model this project uses is a slot (§12).** The two common shapes:
+**The two models** (the slot takes `solo` or `pr`):
 
-- **Solo** — one long-lived working branch; no branch per task. With no review and no
+- **`solo`** — one long-lived base branch; no branch per task. With no review and no
   parallel authors, per-task branches cost attention and buy nothing, and half-finished
-  ones get abandoned. Work lands on the working branch directly.
-- **Team** — a branch per unit of work, merged through review. The working branch is
-  protected, and an agent neither merges nor releases: it prepares the change, and a
-  human approves it (§4).
+  ones get abandoned. Work lands on the base branch directly, and is pushed.
+- **`pr`** — every session gets its own branch, named by the pattern in §12, and every
+  change reaches the base branch through a pull request that a human merges. The agent
+  pushes its branch and opens the pull request; it never commits to the base branch, and
+  never to the production branch either.
 
-If the slot is empty, ask (§12) — do not infer the model from the branch names you
-happen to see.
+**`pr` needs a worktree per session.** Parallel sessions share a checkout. One that
+switches the checkout to its own branch drags every other session's uncommitted work
+and next commit along with it. So each session works in a worktree of its own, and the
+main checkout stays on the base branch — usually the copy the human runs.
+
+**`pr` needs a sync step, and it happens at session start (§2).** A merged pull request
+lands on the remote, not on anyone's local base, and nothing brings it back on its own:
+the copy the human runs from falls further behind with every merge, and a branch cut
+from it starts stale. So before branching: fetch, then fast-forward the local base to
+its remote (`--ff-only`). A refused fast-forward means the local base holds commits that
+never went through a pull request — the two models were mixed. Stop and report it; do
+not merge or rebase it away. The end of a session has nothing to sync: its pull request
+is not merged yet.
+
+**`pr` is enforced at commit time.** The commit hook of every repository the project
+covers runs `npx flowpad guard-branch`, which refuses a commit on the base branch or the
+production branch while the model is `pr`. The installation check reports any repository
+whose hook does not, and how far each local base is from its remote.
 
 ## 7. Reporting
 
@@ -381,7 +405,9 @@ this table.
 |---|---|
 | Contract enforcement (§3) | ✅ the project's enforcement tests |
 | Commit-time lint/type gate (§6) | ✅ commit hook |
-| Working branch / fast-forward promotion (§6) | ✅ health check (§12) |
+| Fast-forward promotion from the base branch (§6) | ✅ health check (§12) |
+| No commit on the base branch under `pr` (§6) | ✅ commit hook running `flowpad guard-branch`; the installation check reports a repository without it |
+| Local base level with its remote (§6) | ✅ installation check, as of the last fetch — the fetch itself is §2 step 5, intent only |
 | This file's version drift (§1) | ✅ installation check |
 | Scaffold integrity — anchor line, contract index, filled-in settings | ✅ installation check |
 | Noticing a newer protocol exists | ✅ installation check, mechanically once wired into the commit gate — including when the installed tooling is itself the stale part |
@@ -531,7 +557,7 @@ left to ask:
 - **Never quote this document at them.** No section numbers, no "slot", no
   "promotion chain", none of this document's vocabulary. Ask in the words their
   project already uses: *"which branch do you commit to day to day?"* — not *"what
-  goes in the Working branch slot in §12?"*
+  goes in the Base branch slot in §12?"*
 - **Confirm rather than interrogate.** Work the answer out from the repository first,
   then put it up for a yes/no: *"looks like you work on `dev`, and deploying is just
   a push — right?"* One correction costs them less than one open question.
@@ -550,8 +576,9 @@ question is theirs. Then write the answers in as they arrive, and carry on.
 |---|---|
 | Contract index | `<TODO>` — ask: *Where are this project’s rules written down?* |
 | Task surface (§5) | `<TODO>` — ask: *Where do you keep what still needs doing?* |
-| Branching model (§6) | `<TODO>` — ask: *Do you work on one branch, or a branch per piece of work?* |
-| Working branch (§6) | `<TODO>` — ask: *Which branch do you commit to day to day?* |
+| Branching model (§6) | `<TODO>` — ask: *Do you commit straight to one branch, or open a branch and a pull request for each piece of work?* (`solo` or `pr`) |
+| Base branch (§6) | `<TODO>` — ask: *Which branch does finished work land on — the one you commit to, or the one pull requests merge into?* |
+| Branch name (§6) | `<TODO>` — ask: *How do you name a new branch?* (`pr` only) |
 | How a change reaches production (§6) | `<TODO>` — ask: *How does a change get live from here — or does nothing deploy?* |
 | Health check (§9) | `<TODO>` — ask: *Is there one command that tells you the project is healthy?* |
 | Test command | `<TODO>` — ask: *How do you run the tests?* |
