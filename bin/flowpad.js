@@ -155,12 +155,21 @@ function repoRoot() {
   }
 }
 
+// Inside a commit hook git exports where *its* repository is. Left in place, a call aimed
+// at another repository with `-C` silently reads — or writes — the hooked one instead.
+const GIT_ENV = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([k]) => !['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'].includes(k),
+  ),
+);
+
 function gitBranch(root) {
   try {
     return execFileSync(
       'git',
       ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'],
       {
+        env: GIT_ENV,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       },
@@ -866,6 +875,7 @@ function preCommit(root) {
       'git',
       ['-C', root, 'config', '--get', 'core.hooksPath'],
       {
+        env: GIT_ENV,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       },
@@ -912,6 +922,7 @@ const repoLabel = (root, repo) =>
 function baseDistance(repo, names) {
   const git = (...args) =>
     execFileSync('git', ['-C', repo, ...args], {
+      env: GIT_ENV,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();

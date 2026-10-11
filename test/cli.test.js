@@ -17,11 +17,19 @@ const CLI = path.join(__dirname, '..', 'bin', 'flowpad.js');
 
 // The registry probe is the one non-deterministic thing in `check`; every test opts out.
 // NO_COLOR keeps the output plain so assertions can match text, not escape codes.
-const ENV = { ...process.env, FLOWPAD_NO_NETWORK: '1', NO_COLOR: '1' };
+// Every GIT_* variable is dropped: when the suite runs inside a commit hook, git has
+// exported the hooked repository's location, and a test's `git -C <tmp>` would act on it.
+const ENV = {
+  ...Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+  ),
+  FLOWPAD_NO_NETWORK: '1',
+  NO_COLOR: '1',
+};
 
 function repo(manifests = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
-  execFileSync('git', ['init', '-q', dir]);
+  execFileSync('git', ['init', '-q', dir], { env: ENV });
   for (const [rel, pkg] of Object.entries(manifests)) {
     const file = path.join(dir, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -199,6 +207,7 @@ test('the registered session hook actually prints the digest when run', () => {
   const [{ command }] = settings.hooks.SessionStart[0].hooks;
   const out = execFileSync('sh', ['-c', command], {
     cwd: dir,
+    env: ENV,
     encoding: 'utf8',
   });
   assert.match(out, /## 0\. Digest/);
