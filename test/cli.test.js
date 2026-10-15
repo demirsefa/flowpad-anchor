@@ -794,7 +794,7 @@ test('the base branch is detected and the branch name ships with a default', () 
     path.join(branchRepo(), 'dev/flowpad/AGENT-INIT.md'),
     'utf8',
   );
-  assert.match(body, /\| Base branch \(§6\) \| `dev` \|/);
+  assert.match(body, /\| Base branch \(§6\) \| `dev` — inferred/);
   assert.match(body, /\| Branch name \(§6\) \| `chat\/YYYY-MM-DD-<slug>`/);
 });
 
@@ -886,4 +886,99 @@ test('update carries the old working-branch answer into the base-branch row', ()
   const body = fs.readFileSync(file, 'utf8');
   assert.match(body, /\| Base branch \(§6\) \| `trunk` \|/);
   assert.doesNotMatch(body, /Working branch/);
+});
+
+// --- base-branch detection ---------------------------------------------------------
+// `init` once recorded whatever was checked out as the base, so installing from a chat
+// branch made the chat branch the base. The checked-out branch is the last resort now,
+// and a branch matching the branch-name pattern is never a base.
+
+const baseRow = (dir) =>
+  fs
+    .readFileSync(path.join(dir, 'dev/flowpad/AGENT-INIT.md'), 'utf8')
+    .match(/^\| Base branch \(§6\) \|(.*)\|$/m)[1];
+
+// A bare origin whose default branch is `trunk` — neither `main` nor what is checked out.
+function originRepo() {
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-remote-'));
+  git(remote, 'init', '-q', '--bare', '-b', 'trunk');
+  const seed = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-seed-'));
+  git(seed, 'init', '-q', '-b', 'trunk');
+  commit(seed, 'a');
+  git(seed, 'push', '-q', remote, 'trunk');
+  return remote;
+}
+
+test("init takes the base from origin's recorded default, not the checked-out chat branch", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
+  git(dir, 'clone', '-q', originRepo(), '.');
+  git(dir, 'checkout', '-q', '-b', 'chat/2026-10-15-iskelet');
+  run(dir, ['init', '--agent=claude']);
+  assert.match(baseRow(dir), /^ `trunk` — origin's default branch $/);
+});
+
+test('init asks origin for its default when the clone never recorded one', () => {
+  // `git remote add` + fetch leaves no origin/HEAD — the repository this bug was found in.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
+  git(dir, 'init', '-q', '-b', 'chat/2026-10-15-iskelet');
+  git(dir, 'remote', 'add', 'origin', originRepo());
+  git(dir, 'fetch', '-q', 'origin');
+  run(dir, ['init', '--agent=claude'], { env: { FLOWPAD_NO_NETWORK: '' } });
+  assert.match(baseRow(dir), /`trunk` — origin's default branch/);
+});
+
+test('without an origin, a local `main` wins over the checked-out chat branch', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  commit(dir, 'a');
+  git(dir, 'checkout', '-q', '-b', 'chat/2026-10-15-iskelet');
+  run(dir, ['init', '--agent=claude']);
+  assert.match(baseRow(dir), /`main` — inferred/);
+});
+
+test('a chat branch is never recorded as the base, even when it is the only branch', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowpad-test-'));
+  git(dir, 'init', '-q', '-b', 'chat/2026-10-15-iskelet');
+  commit(dir, 'a');
+  run(dir, ['init', '--agent=claude']);
+  assert.match(baseRow(dir), /<TODO>/);
+  assert.doesNotMatch(baseRow(dir), /chat\//);
+});
+
+// --- options -----------------------------------------------------------------------
+// `init --help` once ran a full install into the current directory: options were
+// filtered out and whatever was not recognised was dropped without a word.
+
+const SUBCOMMANDS = [
+  'init',
+  'check',
+  'update',
+  'guide',
+  'wire-session',
+  'wire-gate',
+  'skill',
+  'context',
+  'guard-branch',
+];
+
+test('--help and -h on any command print its usage and write nothing', () => {
+  for (const cmd of SUBCOMMANDS) {
+    for (const flag of ['--help', '-h']) {
+      const dir = repo();
+      const { code, out } = run(dir, [cmd, flag]);
+      assert.strictEqual(code, 0, `${cmd} ${flag}`);
+      assert.match(out, new RegExp(`npx flowpad ${cmd}`), `${cmd} ${flag}`);
+      assert.deepStrictEqual(fs.readdirSync(dir), ['.git'], `${cmd} ${flag}`);
+    }
+  }
+});
+
+test('an option a command does not take is an error, and nothing is written', () => {
+  const dir = repo();
+  const bogus = run(dir, ['init', '--bogus']);
+  assert.strictEqual(bogus.code, 1);
+  assert.match(bogus.out, /Unknown option for `flowpad init`: --bogus/);
+  assert.strictEqual(run(dir, ['wire-gate', '--force']).code, 1);
+  assert.strictEqual(run(dir, ['--bogus']).code, 1);
+  assert.deepStrictEqual(fs.readdirSync(dir), ['.git']);
 });
