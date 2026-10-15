@@ -179,6 +179,68 @@ function gitBranch(root) {
   }
 }
 
+const DEFAULT_BRANCH_NAME = 'chat/YYYY-MM-DD-<slug>';
+
+// A branch-name pattern (`chat/YYYY-MM-DD-<slug>`) as a regular expression.
+const branchPattern = (pattern) =>
+  new RegExp(
+    `^${pattern
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace('YYYY', '\\d{4}')
+      .replace('MM', '\\d{2}')
+      .replace('DD', '\\d{2}')
+      .replace(/<[^>]+>/g, '.+')}$`,
+  );
+
+// The branch finished work lands on — never simply the one checked out. Reading HEAD
+// made a repository installed from a chat branch record `chat/2026-10-15-x` as its base,
+// and the commit guard then protected the wrong branch. Asked in order: origin's
+// recorded default, origin's advertised default, a `main`/`master` the repository has,
+// and only then the checked-out branch. A name matching the branch-name pattern is never
+// a base. Returns { name, how } — `how` is the cell's note on where it came from — or null.
+function baseBranch(root, namePattern) {
+  const git = (...args) => {
+    try {
+      return execFileSync('git', ['-C', root, ...args], {
+        env: { ...GIT_ENV, GIT_TERMINAL_PROMPT: '0' },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+      }).trim();
+    } catch {
+      return '';
+    }
+  };
+  const has = (n) =>
+    git('rev-parse', '--verify', '-q', `refs/heads/${n}`) ||
+    git('rev-parse', '--verify', '-q', `refs/remotes/origin/${n}`);
+  const sources = [
+    [
+      () => git('symbolic-ref', '--short', 'refs/remotes/origin/HEAD'),
+      "origin's default branch",
+    ],
+    [
+      () =>
+        !process.env.FLOWPAD_NO_NETWORK &&
+        (git('ls-remote', '--symref', 'origin', 'HEAD').match(
+          /^ref: refs\/heads\/(\S+)\s+HEAD$/m,
+        ) || [])[1],
+      "origin's default branch",
+    ],
+    [
+      () => ['main', 'master'].find(has),
+      'inferred: origin names no default branch',
+    ],
+    [() => gitBranch(root), 'inferred from the checked-out branch'],
+  ];
+  const chat = branchPattern(namePattern);
+  for (const [find, how] of sources) {
+    const name = (find() || '').replace(/^origin\//, '');
+    if (name && name !== 'HEAD' && !chat.test(name)) return { name, how };
+  }
+  return null;
+}
+
 // Every package.json worth reading: the root's, plus one level of child directories.
 // Both, not either — a workspace root often carries a manifest of its own *and* one
 // per sub-repo, and looking at only one of them mis-reads the project. This is the
@@ -573,11 +635,18 @@ function openSlotQuestions(text) {
 function detectSlots(root) {
   const slots = {};
   const here = (...p) => path.join(root, ...p);
-  const branch = gitBranch(root);
-  if (branch && branch !== 'HEAD') slots['Base branch (§6)'] = `\`${branch}\``;
+  // A re-install keeps excluding the branch names the project already chose.
+  const named = exists(here(PROTOCOL_FILE))
+    ? branchesIn(slotCell(read(here(PROTOCOL_FILE)), 'Branch name'))[0]
+    : null;
+  const base = baseBranch(
+    root,
+    named && named !== '<TODO>' ? named : DEFAULT_BRANCH_NAME,
+  );
+  if (base) slots['Base branch (§6)'] = `\`${base.name}\` — ${base.how}`;
   // The default pattern, so the row is never a question; it only matters under `pr`.
   slots['Branch name (§6)'] =
-    '`chat/YYYY-MM-DD-<slug>` — default; used only by the `pr` model';
+    `\`${DEFAULT_BRANCH_NAME}\` — default; used only by the \`pr\` model`;
 
   if (exists(here(CONTRACTS_DIR, 'README.md')))
     slots['Contract index'] = `\`${CONTRACTS_DIR}/README.md\``;
@@ -2204,38 +2273,120 @@ function context(root) {
 
 // ---- entry -----------------------------------------------------------------
 
-function help() {
+// Each command with the options it takes. One table, so the help a command prints and
+// the options it accepts cannot drift apart — an option a command does not list is an
+// error, never silently dropped. `init --help` once ran a full install into the
+// current directory because nothing here knew what `--help` meant.
+const COMMANDS = {
+  init: {
+    args: '',
+    what: 'install the protocol and scaffolding into this repository',
+    flags: ['--agent', '--wire', '--guides', '--tasks', '--skills', '--force'],
+  },
+  check: {
+    args: '',
+    what: `verify it is anchored, filled in, and current  ${c.dim('(exit 1 on failure)')}`,
+    flags: [],
+  },
+  update: {
+    args: '',
+    what: 'pull a newer protocol, keeping the project settings',
+    flags: ['--force'],
+  },
+  guide: {
+    args: 'list | add <name>',
+    what: 'list what stack guides exist and which fit this repo, or install one',
+    flags: [],
+  },
+  'wire-session': {
+    args: '',
+    what: 'make the protocol load itself at every session start',
+    flags: ['--agent'],
+  },
+  'wire-gate': {
+    args: '',
+    what: 'run `flowpad check` before every commit',
+    flags: [],
+  },
+  skill: {
+    args: 'list | add <name>',
+    what: 'list ready-made agent commands on offer, or install one',
+    flags: [],
+  },
+  context: {
+    args: '',
+    what: `print the session brief ${c.dim('(the digest + where the rest lives)')}`,
+    flags: [],
+  },
+  'guard-branch': {
+    args: '',
+    what: `for a commit hook: refuse a commit on the base branch when work merges through pull requests ${c.dim('(exit 1)')}`,
+    flags: [],
+  },
+};
+
+const FLAGS = {
+  '--agent': `${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
+                   file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}`,
+  '--wire': `${c.dim('--wire')}           say yes to the commit-gate and session-channel offers
+                   without being asked ${c.dim('(init asks otherwise)')}`,
+  '--guides': `${c.dim('--guides')}         install the guides for the stacks detected here without asking`,
+  '--tasks': `${c.dim('--tasks')}          answer the task-surface offer with yes without being asked`,
+  '--skills': `${c.dim('--skills')}         answer the ready-made command offer with yes without being asked`,
+  '--force': `${c.dim('--force')}          skip the overwrite prompt`,
+};
+
+function help(cmd) {
+  if (cmd) {
+    const { args, what, flags } = COMMANDS[cmd];
+    console.log(`
+${c.b(`npx flowpad ${cmd}`)}${args ? ` ${args}` : ''}
+
+  ${what}
+${flags.length ? `\n${flags.map((f) => `  ${FLAGS[f]}`).join('\n')}\n` : ''}`);
+    return;
+  }
   console.log(`
 ${c.b('flowpad')} — the Anchor working protocol  ${c.dim(`v${PKG.version}`)}
 
-  ${c.b('npx flowpad init')}     install the protocol and scaffolding into this repository
-  ${c.b('npx flowpad check')}    verify it is anchored, filled in, and current  ${c.dim('(exit 1 on failure)')}
-  ${c.b('npx flowpad update')}   pull a newer protocol, keeping the project settings
-  ${c.b('npx flowpad guide')}    ${c.dim('list')} what stack guides exist and which fit this repo,
-                       ${c.dim('add <name>')} to install one
-  ${c.b('npx flowpad wire-session')}  make the protocol load itself at every session start
-  ${c.b('npx flowpad wire-gate')}     run \`flowpad check\` before every commit
-  ${c.b('npx flowpad skill')}         ${c.dim('list')} ready-made agent commands on offer, ${c.dim('add <name>')} to install one
-  ${c.b('npx flowpad context')}       print the session brief ${c.dim('(the digest + where the rest lives)')}
-  ${c.b('npx flowpad guard-branch')}  for a commit hook: refuse a commit on the base branch when work
-                       merges through pull requests ${c.dim('(exit 1)')}
+${Object.entries(COMMANDS)
+  .map(
+    ([name, { what }]) => `  ${c.b(`npx flowpad ${name}`.padEnd(24))}  ${what}`,
+  )
+  .join('\n')}
 
-  ${c.dim('--agent=<name>')}   which agent to anchor for when the repo has no instruction
-                   file yet ${c.dim(`(${Object.keys(AGENT_FILES).join(', ')})`)}
-  ${c.dim('--wire')}           say yes to the commit-gate and session-channel offers
-                   without being asked ${c.dim('(init asks otherwise)')}
-  ${c.dim('--guides')}         install the guides for the stacks detected here without asking
-  ${c.dim('--tasks')}          answer the task-surface offer with yes without being asked
-  ${c.dim('--skills')}         answer the ready-made command offer with yes without being asked
+${Object.values(FLAGS)
+  .map((f) => `  ${f}`)
+  .join('\n')}
   ${c.dim('FLOWPAD_YES=1')}    answer every offer with yes ${c.dim('(for scripts)')}
-  ${c.dim('--force')}          skip the overwrite prompt
+  ${c.dim('--help, -h')}       after a command: print its usage and do nothing else
 `);
 }
 
-const positional = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const argv = process.argv.slice(2);
+const positional = argv.filter((a) => !a.startsWith('-'));
 const [cmd, ...rest] = positional;
-const force = process.argv.includes('--force');
-const agentArg = process.argv.find((a) => a.startsWith('--agent='));
+const options = argv.filter((a) => a.startsWith('-'));
+if (cmd && cmd !== 'help' && !COMMANDS[cmd]) {
+  console.error(`Unknown command: ${cmd}`);
+  help();
+  process.exit(1);
+}
+if (options.some((a) => a === '--help' || a === '-h')) {
+  help(COMMANDS[cmd] ? cmd : undefined);
+  process.exit(0);
+}
+const accepted = COMMANDS[cmd] ? COMMANDS[cmd].flags : [];
+const unknown = options.filter((a) => !accepted.includes(a.split('=')[0]));
+if (unknown.length) {
+  console.error(
+    `Unknown option${unknown.length > 1 ? 's' : ''} for \`flowpad${cmd ? ` ${cmd}` : ''}\`: ${unknown.join(' ')}`,
+  );
+  if (COMMANDS[cmd]) help(cmd);
+  process.exit(1);
+}
+const force = options.includes('--force');
+const agentArg = options.find((a) => a.startsWith('--agent='));
 const agentName = agentArg
   ? agentArg.slice('--agent='.length).toLowerCase()
   : undefined;
@@ -2246,10 +2397,10 @@ if (agentName && !AGENT_FILES[agentName]) {
   process.exit(1);
 }
 const anchor = agentName ? AGENT_FILES[agentName] : undefined;
-const wire = process.argv.includes('--wire');
-const guides = process.argv.includes('--guides');
-const tasks = process.argv.includes('--tasks');
-const skills = process.argv.includes('--skills');
+const wire = options.includes('--wire');
+const guides = options.includes('--guides');
+const tasks = options.includes('--tasks');
+const skills = options.includes('--skills');
 const root = repoRoot();
 
 switch (cmd) {
@@ -2293,12 +2444,6 @@ switch (cmd) {
     for (const [tag, what] of results) console.log(`  ${tag}  ${what}`);
     break;
   }
-  case undefined:
-  case 'help':
-    help();
-    break;
   default:
-    console.error(`Unknown command: ${cmd}`);
     help();
-    process.exit(1);
 }
